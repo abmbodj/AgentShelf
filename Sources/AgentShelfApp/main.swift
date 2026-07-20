@@ -6,9 +6,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = SessionStore()
     lazy var controller = NotchController(store: store)
     let server = UnixSocketServer(path: AgentShelf.socketPath)
+    let menuBar = MenuBarController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller.start()
+        menuBar.install()
         // @MainActor classes are implicitly Sendable, so capturing them here is safe;
         // we hop back onto the main actor to mutate state.
         do {
