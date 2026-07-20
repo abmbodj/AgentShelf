@@ -42,7 +42,7 @@ public enum SessionStatus: String, Codable, Sendable {
     case error
 
     /// Higher = more urgent; the pill shows the worst status across sessions.
-    var severity: Int {
+    public var severity: Int {
         switch self {
         case .waitingApproval: return 3
         case .error: return 2
