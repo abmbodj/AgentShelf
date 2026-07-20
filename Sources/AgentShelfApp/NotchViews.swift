@@ -34,26 +34,62 @@ struct SessionListView: View {
     unowned let controller: NotchController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Agent Shelf").font(.headline).foregroundStyle(.white)
                 Spacer()
-                if controller.pinned {
-                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.white.opacity(0.6))
-                }
+                Image(systemName: controller.pinned ? "pin.fill" : "pin")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.6))
             }
+            .contentShape(Rectangle())
+            .onTapGesture { controller.togglePin() }
+
+            // Pending approval (one at a time) drops in above the list.
+            if let approval = store.pendingApprovals.first {
+                ApprovalCard(request: approval)
+            }
+
             if store.active.isEmpty {
                 Text("No active sessions").font(.callout).foregroundStyle(.white.opacity(0.5))
             } else {
                 ForEach(store.active) { session in
                     SessionRow(session: session)
+                        .contentShape(Rectangle())
+                        .onTapGesture { controller.jump(session) }
                 }
             }
         }
         .padding(14)
-        .frame(width: 300, alignment: .leading)
+        .frame(width: 320, alignment: .leading)
         .onHover { controller.setHovering($0) }
-        .onTapGesture { controller.togglePin() }
+    }
+}
+
+/// Auto-dropped permission prompt with Allow/Deny.
+struct ApprovalCard: View {
+    let request: ApprovalRequest
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.orange)
+                Text("\(request.source.displayName) · \(request.folderName)")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+            }
+            Text(request.toolName).font(.caption.weight(.bold)).foregroundStyle(.orange)
+            if !request.toolSummary.isEmpty {
+                Text(request.toolSummary)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(3).truncationMode(.middle)
+            }
+            HStack {
+                Button("Deny") { request.decide(.deny) }.buttonStyle(.bordered)
+                Spacer()
+                Button("Allow") { request.decide(.allow) }.buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08)))
     }
 }
 

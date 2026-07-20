@@ -30,6 +30,9 @@ final class NotchController: ObservableObject {
     func setHovering(_ h: Bool) { hovering = h; refresh() }
     func togglePin() { pinned.toggle(); refresh() }
 
+    /// Focus the editor window for a session's folder.
+    func jump(_ session: Session) { JumpService.focus(cwd: session.cwd) }
+
     /// Reconcile the notch after any state change (sessions, hover, pin).
     func refresh() {
         guard let notch else { return }

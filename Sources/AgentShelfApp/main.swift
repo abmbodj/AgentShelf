@@ -13,7 +13,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // we hop back onto the main actor to mutate state.
         do {
             try server.start { [store, controller] msg in
-                // Phase 1c: status-only. PermissionRequest approval round-trip lands in 1d.
+                // Approval: block this connection thread until the user decides or we hit
+                // our own deadline (< the hook's), then hand the decision back to the hook.
+                if msg.needsDecision {
+                    let sem = DispatchSemaphore(value: 0)
+                    let box = DecisionBox()
+                    Task { @MainActor in
+                        store.presentApproval(msg) { decision in box.set(decision); sem.signal() }
+                        controller.refresh()
+                    }
+                    let outcome = sem.wait(timeout: .now() + 55)
+                    Task { @MainActor in
+                        store.removeApproval(sessionId: msg.sessionId)
+                        controller.refresh()
+                    }
+                    return outcome == .timedOut ? nil : box.get()
+                }
+                // Status-only events.
                 Task { @MainActor in
                     store.apply(msg)
                     controller.refresh()
