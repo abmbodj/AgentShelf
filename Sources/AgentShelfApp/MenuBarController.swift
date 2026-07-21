@@ -8,6 +8,7 @@ import AgentShelfCore
 final class MenuBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let installer: ClaudeInstaller
+    private let statusLineInstaller = StatusLineInstaller()
 
     override init() {
         // The registered command points at the MANAGED copy (stable path, survives app
@@ -55,6 +56,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         add(menu, installed ? "Uninstall Claude Code Hooks" : "Install Claude Code Hooks",
             #selector(toggleHooks))
 
+        let statusLineInstalled = (try? statusLineInstaller.isInstalled()) ?? false
+        add(menu, statusLineInstalled ? "Uninstall Usage Statusline" : "Install Usage Statusline",
+            #selector(toggleStatusLine))
+
+        add(menu, "Check Hooks…", #selector(checkHooks))
+
         let launch = add(menu, "Launch at Login", #selector(toggleLaunchAtLogin))
         launch.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
 
@@ -98,6 +105,54 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             let alert = NSAlert()
             alert.messageText = "Hook update failed"
             alert.informativeText = "\(error)"
+            alert.runModal()
+        }
+    }
+
+    @objc private func toggleStatusLine() {
+        do {
+            if (try? statusLineInstaller.isInstalled()) == true { try statusLineInstaller.uninstall() }
+            else { try statusLineInstaller.install() }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Statusline update failed"
+            alert.informativeText = "\(error)"
+            alert.runModal()
+        }
+    }
+
+    /// Quick health report: settings parse state, install state, managed binary, socket.
+    /// "Repair" = refresh the managed binary + reinstall our entries (surgical as ever).
+    @objc private func checkHooks() {
+        var lines: [String] = []
+        var healthy = true
+        do {
+            lines.append(try installer.isInstalled() ? "Hooks: installed" : "Hooks: not installed")
+        } catch {
+            lines.append("Settings: UNPARSEABLE — fix ~/.claude/settings.json by hand")
+            healthy = false
+        }
+        let binPath = ManagedHookBinary.url.path
+        if FileManager.default.isExecutableFile(atPath: binPath) {
+            lines.append("Hook binary: OK")
+        } else {
+            lines.append("Hook binary: MISSING (\(binPath))")
+            healthy = false
+        }
+        lines.append(FileManager.default.fileExists(atPath: AgentShelf.socketPath)
+                     ? "Socket: present" : "Socket: MISSING (server failed to start?)")
+
+        let alert = NSAlert()
+        alert.messageText = healthy ? "Hooks look healthy" : "Hooks need repair"
+        alert.informativeText = lines.joined(separator: "\n")
+        if !healthy {
+            alert.addButton(withTitle: "Repair")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                _ = try? ManagedHookBinary.install(from: Self.bundledHookURL())
+                try? installer.install()
+            }
+        } else {
             alert.runModal()
         }
     }

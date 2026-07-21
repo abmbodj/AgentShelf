@@ -8,6 +8,63 @@ final class SessionStore: ObservableObject {
     @Published private(set) var pendingApprovals: [ApprovalRequest] = []
     @Published private(set) var pendingNotices: [AttentionNotice] = []
     private var index: [String: Int] = [:]
+    private var persistTask: Task<Void, Never>?
+
+    private static let persistURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/AgentShelf/sessions.json")
+
+    init() { restore() }
+
+    /// Recent sessions survive an app restart, coming back as idle (live status and
+    /// pending approvals can't outlive the hook connections). Stale rows prune out.
+    private func restore() {
+        guard let data = try? Data(contentsOf: Self.persistURL),
+              var restored = try? JSONDecoder().decode([Session].self, from: data),
+              !restored.isEmpty else { return }
+        for i in restored.indices { restored[i].status = .idle }
+        sessions = restored
+        reindex()
+        prune()
+    }
+
+    /// Debounced write — hook events can be chatty; one save a second is plenty.
+    private func schedulePersist() {
+        persistTask?.cancel()
+        persistTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            try? FileManager.default.createDirectory(
+                at: Self.persistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? JSONEncoder().encode(sessions).write(to: Self.persistURL, options: .atomic)
+        }
+    }
+
+    /// Every minute: when NO claude-ish process exists at all, idle rows are certainly
+    /// dead — drop them without waiting out the 15-minute prune. Running rows are never
+    /// touched, and pgrep over-matching only defers cleanup (the safe direction).
+    func startReaper() {
+        Task { @MainActor in
+            while true {
+                try? await Task.sleep(for: .seconds(60))
+                guard !sessions.isEmpty else { continue }
+                let alive = await Task.detached { Self.claudeProcessExists() }.value
+                if !alive {
+                    sessions.removeAll { $0.status == .idle || $0.status == .done }
+                    reindex()
+                    schedulePersist()
+                }
+            }
+        }
+    }
+
+    nonisolated private static func claudeProcessExists() -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", "claude"]
+        p.standardOutput = FileHandle.nullDevice
+        do { try p.run(); p.waitUntilExit(); return p.terminationStatus == 0 }
+        catch { return true }   // can't tell -> assume alive, never reap blind
+    }
 
     /// Map a hook event to the status it implies (nil = leave status unchanged).
     static func status(for event: String) -> SessionStatus? {
@@ -45,6 +102,7 @@ final class SessionStore: ObservableObject {
             isNew = true
         }
         prune()
+        schedulePersist()
         return isNew
     }
 
@@ -54,6 +112,7 @@ final class SessionStore: ObservableObject {
         pendingApprovals.removeAll { $0.sessionId == id }
         pendingNotices.removeAll { $0.sessionId == id }
         reindex()
+        schedulePersist()
     }
 
     /// Keep the list bounded: drop long-idle sessions (safety net for sessions that never

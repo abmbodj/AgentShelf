@@ -38,6 +38,11 @@ struct SessionListView: View {
             HStack {
                 Text("Agent Shelf").font(.headline).foregroundStyle(.white)
                 Spacer()
+                if let usage = UsageCache.text {
+                    Text(usage)
+                        .font(.caption2).monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.5))
+                }
                 Image(systemName: controller.pinned ? "pin.fill" : "pin")
                     .font(.caption2).foregroundStyle(.white.opacity(0.6))
             }

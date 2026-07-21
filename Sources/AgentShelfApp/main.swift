@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller.start()
+        store.startReaper()
         menuBar.install()
         // If the user already opted into hooks, keep them current across app updates
         // (adds newly-required own-events like SessionEnd; surgical, never touches others).

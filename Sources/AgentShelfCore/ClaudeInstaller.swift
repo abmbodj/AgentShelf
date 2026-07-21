@@ -5,6 +5,39 @@ public enum InstallerError: Error, Equatable {
     case io(String)
 }
 
+/// Shared read/serialize/compare helpers for surgical settings.json editing, used by
+/// ClaudeInstaller (hooks) and StatusLineInstaller (usage statusline).
+enum SettingsFile {
+    /// Returns the parsed root, or [:] if the file is missing. Throws if it exists but
+    /// is unparseable — we never partially write a config we don't fully understand.
+    static func load(_ url: URL) throws -> (root: [String: Any], originalBytes: Data?) {
+        guard let bytes = try? Data(contentsOf: url) else { return ([:], nil) }
+        guard let obj = try? JSONSerialization.jsonObject(with: bytes),
+              let root = obj as? [String: Any] else {
+            throw InstallerError.unparseable(url.path)
+        }
+        return (root, bytes)
+    }
+
+    static func serialize(_ root: [String: Any]) -> Data {
+        (try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])) ?? Data("{}".utf8)
+    }
+
+    /// Key-order-independent form for "same content?" comparisons.
+    static func normalized(_ data: Data) -> Data? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
+    }
+
+    static func write(_ data: Data, to url: URL) throws {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+        } catch { throw InstallerError.io("\(url.path): \(error)") }
+    }
+}
+
 /// Surgically installs/removes the agentshelf-hook entries in a Claude Code settings.json.
 ///
 /// HARD RULES (see project memory):
@@ -45,15 +78,8 @@ public struct ClaudeInstaller {
 
     // MARK: Read/parse
 
-    /// Returns the parsed root, or [:] if the file is missing. Throws if it exists but is
-    /// unparseable — we never partially write a config we don't fully understand.
     private func loadRoot() throws -> (root: [String: Any], originalBytes: Data?) {
-        guard let bytes = try? Data(contentsOf: settingsURL) else { return ([:], nil) }
-        guard let obj = try? JSONSerialization.jsonObject(with: bytes),
-              let root = obj as? [String: Any] else {
-            throw InstallerError.unparseable(settingsURL.path)
-        }
-        return (root, bytes)
+        try SettingsFile.load(settingsURL)
     }
 
     private func groups(_ hooks: [String: Any], _ event: String) -> [[String: Any]] {
@@ -142,22 +168,9 @@ public struct ClaudeInstaller {
 
     // MARK: Helpers
 
-    private func serialize(_ root: [String: Any]) -> Data {
-        (try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])) ?? Data("{}".utf8)
-    }
-
-    private func normalized(_ data: Data) -> Data? {
-        guard let obj = try? JSONSerialization.jsonObject(with: data) else { return nil }
-        return try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
-    }
-
-    private func write(_ data: Data, to url: URL) throws {
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)
-        } catch { throw InstallerError.io("\(url.path): \(error)") }
-    }
+    private func serialize(_ root: [String: Any]) -> Data { SettingsFile.serialize(root) }
+    private func normalized(_ data: Data) -> Data? { SettingsFile.normalized(data) }
+    private func write(_ data: Data, to url: URL) throws { try SettingsFile.write(data, to: url) }
 
     private func cleanupBackup() { try? FileManager.default.removeItem(at: backupURL) }
 }
