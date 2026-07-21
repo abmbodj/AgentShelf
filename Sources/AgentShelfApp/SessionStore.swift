@@ -23,16 +23,44 @@ final class SessionStore: ObservableObject {
     @discardableResult
     func apply(_ msg: HookMessage) -> Bool {
         let newStatus = Self.status(for: msg.event)
+        let isNew: Bool
         if let i = index[msg.sessionId] {
             if let newStatus { sessions[i].status = newStatus }
             sessions[i].lastActivity = .now
-            return false
+            isNew = false
         } else {
             index[msg.sessionId] = sessions.count
             sessions.append(Session(id: msg.sessionId, source: msg.source,
                                     cwd: msg.cwd, status: newStatus ?? .idle))
-            return true
+            isNew = true
         }
+        prune()
+        return isNew
+    }
+
+    /// The session ended (SessionEnd hook) — drop it and any pending attention for it.
+    func endSession(_ id: String) {
+        sessions.removeAll { $0.id == id }
+        pendingApprovals.removeAll { $0.sessionId == id }
+        pendingNotices.removeAll { $0.sessionId == id }
+        reindex()
+    }
+
+    /// Keep the list bounded: drop long-idle sessions (safety net for sessions that never
+    /// emit SessionEnd, e.g. a crash) and cap the total.
+    private func prune() {
+        let cutoff = Date.now.addingTimeInterval(-15 * 60)
+        let before = sessions.count
+        sessions.removeAll { ($0.status == .idle || $0.status == .done) && $0.lastActivity < cutoff }
+        if sessions.count > 15 {
+            sessions = Array(sessions.sorted { $0.lastActivity > $1.lastActivity }.prefix(15))
+        }
+        if sessions.count != before { reindex() }
+    }
+
+    private func reindex() {
+        index.removeAll(keepingCapacity: true)
+        for (i, s) in sessions.enumerated() { index[s.id] = i }
     }
 
     /// Show a pending permission request and mark the session as waiting. `onDecide` is

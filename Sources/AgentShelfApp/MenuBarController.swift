@@ -1,9 +1,9 @@
 import AppKit
+import ServiceManagement
 import AgentShelfCore
 
 /// Menu-bar status item = the app's settings surface (simple toggles don't warrant a
-/// window). Install/uninstall hooks, mute, sound, quit.
-/// ponytail: launch-at-login needs a real .app bundle (SMAppService) — add in Phase 4 packaging.
+/// window). Install/uninstall hooks, mute, sound, launch-at-login, quit.
 @MainActor
 final class MenuBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
@@ -29,6 +29,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         statusItem = item
     }
 
+    /// Keep our hook entries current for users who already opted in — adds any newly-required
+    /// own-events (e.g. SessionEnd) across app updates. Idempotent, surgical, never touches
+    /// entries we didn't add.
+    func reconcileHooksIfInstalled() {
+        guard (try? installer.isInstalled()) == true else { return }
+        try? installer.install()
+    }
+
     // Rebuild on open so the hook item and checkmarks always reflect current state.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
@@ -41,6 +49,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         add(menu, installed ? "Uninstall Claude Code Hooks" : "Install Claude Code Hooks",
             #selector(toggleHooks))
+
+        let launch = add(menu, "Launch at Login", #selector(toggleLaunchAtLogin))
+        launch.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
 
         let mute = add(menu, "Mute Sounds", #selector(toggleMute))
         mute.state = UserDefaults.standard.bool(forKey: "agentshelf.muted") ? .on : .off
@@ -78,6 +89,21 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             let alert = NSAlert()
             alert.messageText = "Hook update failed"
             alert.informativeText = "\(error)"
+            alert.runModal()
+        }
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't change Launch at Login"
+            alert.informativeText = "\(error)\n\nThis needs the bundled AgentShelf.app (built via scripts/build-app.sh)."
             alert.runModal()
         }
     }

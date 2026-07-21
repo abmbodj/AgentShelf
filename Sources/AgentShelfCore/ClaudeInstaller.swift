@@ -24,6 +24,7 @@ public struct ClaudeInstaller {
         ("PreToolUse", true),
         ("PermissionRequest", true),
         ("Stop", false),
+        ("SessionEnd", false),   // remove the session from the shelf when it truly ends
     ]
 
     /// Any command we own contains this marker, so uninstall finds our entries even if the

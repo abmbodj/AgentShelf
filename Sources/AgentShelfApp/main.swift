@@ -11,6 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller.start()
         menuBar.install()
+        // If the user already opted into hooks, keep them current across app updates
+        // (adds newly-required own-events like SessionEnd; surgical, never touches others).
+        menuBar.reconcileHooksIfInstalled()
         // @MainActor classes are implicitly Sendable, so capturing them here is safe;
         // we hop back onto the main actor to mutate state.
         do {
@@ -39,8 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
                 case .none:
                     Task { @MainActor in
-                        let isNew = store.apply(msg)
-                        if isNew { controller.flash() }
+                        if msg.event == "SessionEnd" {
+                            store.endSession(msg.sessionId)
+                        } else {
+                            let isNew = store.apply(msg)
+                            if isNew { controller.flash() }
+                        }
                         if ProcessInfo.processInfo.environment["AGENTSHELF_DEBUG"] != nil {
                             NSLog("AgentShelf: \(msg.event) \(msg.source.displayName) sessions=\(store.active.count) worst=\(store.worstStatus?.label ?? "-")")
                         }
@@ -57,6 +64,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.stop()
     }
 }
+
+// Single-instance guard: if another Agent Shelf is already running (same bundle id),
+// bow out so two instances don't fight over the socket. No-op for the raw binary.
+let me = NSRunningApplication.current
+let duplicate = NSRunningApplication
+    .runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.agentshelf.app")
+    .contains { $0.processIdentifier != me.processIdentifier }
+if duplicate { exit(0) }
 
 let app = NSApplication.shared
 let delegate = AppDelegate()
