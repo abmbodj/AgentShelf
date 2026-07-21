@@ -49,10 +49,13 @@ struct SessionListView: View {
             .contentShape(Rectangle())
             .onTapGesture { controller.togglePin() }
 
-            // Attention items drop in above the list: a binary Allow/Deny approval, or a
-            // non-binary "needs input" notice (a choice the notch can't make for you).
+            // Attention items drop in above the list: a binary Allow/Deny approval, an
+            // answerable question, or a read-only "needs input" notice (a choice too rich to
+            // answer inline).
             if let approval = store.pendingApprovals.first {
                 ApprovalCard(request: approval) { controller.jump(cwd: approval.cwd) }
+            } else if let question = store.pendingQuestions.first {
+                QuestionCard(request: question) { controller.jump(cwd: question.cwd) }
             } else if let notice = store.pendingNotices.first {
                 NeedsInputCard(notice: notice) { controller.jump(cwd: notice.cwd) }
             }
@@ -91,7 +94,10 @@ struct ApprovalCard: View {
                 Text(request.toolSummary)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.85))
-                    .lineLimit(3).truncationMode(.middle)
+                    .lineLimit(request.diff.isEmpty ? 3 : 1).truncationMode(.middle)
+            }
+            if !request.diff.isEmpty {
+                DiffView(lines: request.diff)
             }
             HStack {
                 Button("Deny") { request.decide(.deny) }.buttonStyle(.bordered)
@@ -99,6 +105,58 @@ struct ApprovalCard: View {
                 // "Always" = allow + session-scoped rule for this tool (nothing on disk).
                 Button("Always") { request.decide(.allowAlways) }.buttonStyle(.bordered)
                 Button("Allow") { request.decide(.allow) }.buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08)))
+    }
+}
+
+/// Answerable AskUserQuestion (single question, single select): tapping an option injects its
+/// ordinal into the terminal that owns the session — Claude Code's menu accepts a bare digit
+/// keypress with no Enter needed (verified against 2.1.216). If injection fails (untargetable
+/// terminal, no matching window) we fall back to "Open in Claude" rather than leave the card
+/// looking answerable with no effect.
+struct QuestionCard: View {
+    let request: QuestionRequest
+    let onOpen: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "questionmark.bubble.fill").foregroundStyle(.yellow)
+                Text("\(request.source.displayName) · \(request.folderName)")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Spacer()
+                OpenInClaudeButton { request.dismiss(); onOpen() }
+            }
+            Text(request.question)
+                .font(.callout).foregroundStyle(.white.opacity(0.9))
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(request.options.enumerated()), id: \.offset) { index, option in
+                    Button {
+                        request.choose(index) { Task { @MainActor in request.dismiss(); onOpen() } }
+                    } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("\(index + 1)")
+                                .font(.caption.weight(.bold)).foregroundStyle(.yellow)
+                                .frame(width: 14, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(option.label)
+                                    .font(.callout.weight(.medium)).foregroundStyle(.white)
+                                if !option.description.isEmpty {
+                                    Text(option.description)
+                                        .font(.caption2).foregroundStyle(.white.opacity(0.6))
+                                        .lineLimit(1).truncationMode(.tail)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(6)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.05)))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(12)
@@ -126,6 +184,65 @@ struct NeedsInputCard: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08)))
+    }
+}
+
+/// Colored +/- line diff for an Edit/MultiEdit/Write approval, built by LineDiff
+/// (stdlib CollectionDifference — no dependency). Clamped so a large file edit can't
+/// blow out the notch's height; the summary line above already names the file.
+struct DiffView: View {
+    let lines: [DiffLine]
+    private let maxLines = 8
+
+    private var window: (lines: [DiffLine], hiddenBefore: Int, hiddenAfter: Int) {
+        LineDiff.windowed(lines, maxLines: maxLines)
+    }
+
+    var body: some View {
+        let w = window
+        VStack(alignment: .leading, spacing: 0) {
+            if w.hiddenBefore > 0 {
+                Text("⋯ \(w.hiddenBefore) lines above")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.4))
+                    .padding(.bottom, 2)
+            }
+            ForEach(Array(w.lines.enumerated()), id: \.offset) { _, line in
+                HStack(spacing: 6) {
+                    Text("\(line.lineNumber)")
+                        .foregroundStyle(.white.opacity(0.3))
+                        .frame(width: 24, alignment: .trailing)
+                    Text(marker(for: line.kind))
+                        .foregroundStyle(color(for: line.kind))
+                    Text(line.text)
+                        .foregroundStyle(line.kind == .context ? .white.opacity(0.7) : .white.opacity(0.95))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                .font(.system(.caption2, design: .monospaced))
+            }
+            if w.hiddenAfter > 0 {
+                Text("⋯ \(w.hiddenAfter) lines below")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.4))
+                    .padding(.top, 2)
+            }
+        }
+        .padding(6)
+        .background(RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.25)))
+    }
+
+    private func marker(for kind: DiffLine.Kind) -> String {
+        switch kind {
+        case .added: return "+"
+        case .removed: return "-"
+        case .context: return " "
+        }
+    }
+
+    private func color(for kind: DiffLine.Kind) -> Color {
+        switch kind {
+        case .added: return .green
+        case .removed: return .red
+        case .context: return .white.opacity(0.3)
+        }
     }
 }
 
@@ -159,12 +276,21 @@ struct SessionRow: View {
                         .font(.body).foregroundStyle(.white.opacity(0.7))
                         .lineLimit(1).truncationMode(.middle)
                 }
+                if let terminal = session.terminalLabel {
+                    TagPill(text: terminal)
+                }
                 Spacer()
-                Text(session.status.label)
-                    .font(.caption).foregroundStyle(session.status.color)
+                Text(session.ageLabel)
+                    .font(.caption2).monospacedDigit().foregroundStyle(.white.opacity(0.45))
             }
-            if let tool = session.lastTool {
-                Text("\(tool) · \(session.ageLabel)")
+            if let prompt = session.lastUserPrompt {
+                Text("You: \(prompt)")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1).truncationMode(.tail)
+                    .padding(.leading, 16)
+            }
+            if let activity = session.activityLabel {
+                Text(activity)
                     .font(.caption2).foregroundStyle(.white.opacity(0.45))
                     .lineLimit(1).truncationMode(.middle)
                     .padding(.leading, 16)
@@ -180,5 +306,17 @@ struct SessionRow: View {
             return "\(session.folderName) (\(branch))"
         }
         return session.folderName
+    }
+}
+
+/// Small rounded badge for a row's terminal tag ("iTerm", "Terminal", "Ghostty").
+private struct TagPill: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.white.opacity(0.6))
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.1)))
     }
 }

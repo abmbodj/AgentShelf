@@ -72,6 +72,10 @@ public struct Session: Codable, Identifiable, Sendable {
     public var parentId: String?     // set = this row is a subagent of parentId
     public var agentType: String?    // subagent label, e.g. "explore" / "code-reviewer"
     public var lastTool: String?     // most recent tool name, shown as the row's activity hint
+    public var lastToolSummary: String?  // file path / command for lastTool, for activityLabel
+    public var terminal: String?     // TERM_PROGRAM the session's hook last reported
+    // Prompt text stays off disk: omitted from CodingKeys below, defaults to nil on restore.
+    public var lastUserPrompt: String?
 
     public init(id: String, source: AgentSource, cwd: String,
                 status: SessionStatus, startedAt: Date = .now, lastActivity: Date = .now,
@@ -84,6 +88,12 @@ public struct Session: Codable, Identifiable, Sendable {
         self.lastActivity = lastActivity
         self.parentId = parentId
         self.agentType = agentType
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, source, cwd, status, startedAt, lastActivity, parentId, agentType
+        case lastTool, lastToolSummary, terminal
+        // lastUserPrompt intentionally omitted.
     }
 
     /// Last path component of cwd — the repo/folder label shown in a row.
@@ -104,6 +114,34 @@ public struct Session: Codable, Identifiable, Sendable {
 
     /// Row label: the agent type for a subagent, else the source name ("claude").
     public var displayLabel: String { agentType ?? source.displayName }
+
+    /// Short terminal badge from TERM_PROGRAM, or nil if unknown/not yet reported.
+    public var terminalLabel: String? {
+        switch terminal {
+        case "iTerm.app": return "iTerm"
+        case "Apple_Terminal": return "Terminal"
+        case "ghostty": return "Ghostty"
+        case "vscode": return "VS Code"
+        case let other?: return other
+        case nil: return nil
+        }
+    }
+
+    /// Friendly current action derived from the last tool, for the row's activity subline
+    /// ("Writing middleware.ts" rather than the raw tool name "Edit").
+    public var activityLabel: String? {
+        guard let lastTool else { return nil }
+        let file = lastToolSummary.map { ($0 as NSString).lastPathComponent }
+        switch lastTool {
+        case "Write": return "Writing \(file ?? "file")"
+        case "Edit", "MultiEdit": return "Editing \(file ?? "file")"
+        case "Read": return "Reading \(file ?? "file")"
+        case "Bash": return lastToolSummary.map { "Running \($0)" } ?? "Running command"
+        case "Grep", "Glob": return "Searching"
+        case "AskUserQuestion": return "Asking a question"
+        default: return lastTool
+        }
+    }
 
     /// Order sessions so each subagent renders directly under its parent, preserving the
     /// input order of top-level rows. Orphans (parent already gone) fall back to top-level.

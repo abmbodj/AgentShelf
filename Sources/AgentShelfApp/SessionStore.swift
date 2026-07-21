@@ -6,6 +6,7 @@ import AgentShelfCore
 final class SessionStore: ObservableObject {
     @Published private(set) var sessions: [Session] = []
     @Published private(set) var pendingApprovals: [ApprovalRequest] = []
+    @Published private(set) var pendingQuestions: [QuestionRequest] = []
     @Published private(set) var pendingNotices: [AttentionNotice] = []
     private var index: [String: Int] = [:]
     private var persistTask: Task<Void, Never>?
@@ -82,14 +83,20 @@ final class SessionStore: ObservableObject {
         let newStatus = Self.status(for: msg.event)
         let isNew: Bool
         if let i = index[msg.sessionId] {
-            // A pending approval owns the status: a late running event (parallel tool,
-            // subagent traffic) must never clear the waiting card from under the user.
-            let approvalPending = sessions[i].status == .waitingApproval
-                && pendingApprovals.contains { $0.sessionId == msg.sessionId }
-            if let newStatus, !approvalPending || newStatus == .waitingApproval {
+            // A pending approval or question owns the status: a late running event (parallel
+            // tool, subagent traffic) must never clear the waiting card from under the user.
+            let waitingPending = sessions[i].status == .waitingApproval
+                && (pendingApprovals.contains { $0.sessionId == msg.sessionId }
+                    || pendingQuestions.contains { $0.sessionId == msg.sessionId })
+            if let newStatus, !waitingPending || newStatus == .waitingApproval {
                 sessions[i].status = newStatus
             }
-            if let tool = msg.toolName { sessions[i].lastTool = tool }
+            if let tool = msg.toolName {
+                sessions[i].lastTool = tool
+                sessions[i].lastToolSummary = msg.toolSummary
+            }
+            if let terminal = msg.terminal { sessions[i].terminal = terminal }
+            if let prompt = msg.userPrompt { sessions[i].lastUserPrompt = prompt }
             sessions[i].lastActivity = .now
             isNew = false
         } else {
@@ -98,6 +105,9 @@ final class SessionStore: ObservableObject {
                                   cwd: msg.cwd, status: newStatus ?? .idle,
                                   parentId: msg.parentId, agentType: msg.agentType)
             session.lastTool = msg.toolName
+            session.lastToolSummary = msg.toolSummary
+            session.terminal = msg.terminal
+            session.lastUserPrompt = msg.userPrompt
             sessions.append(session)
             isNew = true
         }
@@ -110,6 +120,7 @@ final class SessionStore: ObservableObject {
     func endSession(_ id: String) {
         sessions.removeAll { $0.id == id || $0.parentId == id }
         pendingApprovals.removeAll { $0.sessionId == id }
+        pendingQuestions.removeAll { $0.sessionId == id }
         pendingNotices.removeAll { $0.sessionId == id }
         reindex()
         schedulePersist()
@@ -153,11 +164,22 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// Show a non-blocking "needs input" notice for a non-binary prompt (a choice, not a
-    /// grant). Auto-dismisses after a few seconds — the user answers in Claude's own UI.
+    /// Show a non-blocking "needs input" prompt for a non-binary permission (a choice, not a
+    /// grant). A single-question, single-select AskUserQuestion is answerable inline (waits
+    /// like an approval, no auto-dismiss); anything richer falls back to a read-only notice
+    /// that auto-dismisses after a few seconds — the user answers in Claude's own UI.
     /// `quiet` skips the sound (the user is already looking at the session's window).
     func presentNeedsInput(_ msg: HookMessage, quiet: Bool = false) {
-        apply(msg)
+        apply(msg)   // creates/updates the session, sets .waitingApproval
+        guard !pendingQuestions.contains(where: { $0.sessionId == msg.sessionId }) else { return }
+        if let question = QuestionRequest(message: msg, onResolve: { [weak self] in
+            self?.removeQuestion(sessionId: msg.sessionId)
+        }) {
+            pendingQuestions.append(question)
+            if !quiet { ApprovalSound.play() }
+            return
+        }
+
         guard !pendingNotices.contains(where: { $0.sessionId == msg.sessionId }) else { return }
         let notice = AttentionNotice(message: msg)
         pendingNotices.append(notice)
@@ -175,6 +197,14 @@ final class SessionStore: ObservableObject {
     /// Drop the pending approval for a session (on decision or timeout) and un-wait it.
     func removeApproval(sessionId: String) {
         pendingApprovals.removeAll { $0.sessionId == sessionId }
+        if let i = index[sessionId], sessions[i].status == .waitingApproval {
+            sessions[i].status = .running
+        }
+    }
+
+    /// Drop the pending question for a session (on answer or "Open in Claude") and un-wait it.
+    func removeQuestion(sessionId: String) {
+        pendingQuestions.removeAll { $0.sessionId == sessionId }
         if let i = index[sessionId], sessions[i].status == .waitingApproval {
             sessions[i].status = .running
         }

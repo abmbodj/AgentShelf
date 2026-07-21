@@ -37,11 +37,62 @@ let parentId = agentId != nil ? field(obj, "session_id") : nil
 let agentType = field(obj, "agent_type")
 let cwd = field(obj, "cwd") ?? FileManager.default.currentDirectoryPath
 let toolName = field(obj, "tool_name")
+let terminal = ProcessInfo.processInfo.environment["TERM_PROGRAM"]
+let userPrompt = event == "UserPromptSubmit" ? field(obj, "prompt") : nil
 
 var toolSummary: String?
+var questions: [Question]?
+var diffOld: String?
+var diffNew: String?
 if let input = obj["tool_input"] as? [String: Any] {
-    if let cmd = input["command"] as? String { toolSummary = cmd }          // Bash
-    else if let path = input["file_path"] as? String { toolSummary = path } // Edit/Write
+    if toolName == "AskUserQuestion", let raw = input["questions"] as? [[String: Any]] {
+        questions = raw.compactMap { q -> Question? in
+            guard let text = q["question"] as? String,
+                  let rawOptions = q["options"] as? [[String: Any]] else { return nil }
+            let options = rawOptions.compactMap { o -> QuestionOption? in
+                guard let label = o["label"] as? String else { return nil }
+                return QuestionOption(label: label, description: o["description"] as? String ?? "")
+            }
+            return Question(question: text, header: q["header"] as? String ?? "",
+                            options: options, multiSelect: q["multiSelect"] as? Bool ?? false)
+        }
+    } else if toolName == "Edit", let path = input["file_path"] as? String,
+              let old = input["old_string"] as? String,
+              let new = input["new_string"] as? String {
+        // old_string/new_string are just the replaced snippet, not the whole file, so they
+        // carry no line-number info. Read the real file and diff the full before/after so the
+        // card's line numbers match the file, not the snippet.
+        if let content = try? String(contentsOfFile: path, encoding: .utf8),
+           let range = content.range(of: old) {
+            diffOld = content
+            diffNew = content.replacingCharacters(in: range, with: new)
+        } else {
+            diffOld = old
+            diffNew = new
+        }
+        toolSummary = path
+    } else if toolName == "MultiEdit", let path = input["file_path"] as? String,
+              let edits = input["edits"] as? [[String: Any]] {
+        if var content = try? String(contentsOfFile: path, encoding: .utf8) {
+            diffOld = content
+            for edit in edits {
+                guard let old = edit["old_string"] as? String, let new = edit["new_string"] as? String,
+                      let range = content.range(of: old) else { continue }
+                content.replaceSubrange(range, with: new)
+            }
+            diffNew = content
+        } else {
+            diffOld = edits.compactMap { $0["old_string"] as? String }.joined(separator: "\n\n")
+            diffNew = edits.compactMap { $0["new_string"] as? String }.joined(separator: "\n\n")
+        }
+        toolSummary = path
+    } else if toolName == "Write", let path = input["file_path"] as? String,
+              let content = input["content"] as? String {
+        diffOld = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        diffNew = content
+        toolSummary = path
+    } else if let cmd = input["command"] as? String { toolSummary = cmd }          // Bash
+    else if let path = input["file_path"] as? String { toolSummary = path }        // other file tools
     else if let data = try? JSONSerialization.data(withJSONObject: input) {
         toolSummary = String(data: data, encoding: .utf8)
     }
@@ -50,7 +101,8 @@ if let input = obj["tool_input"] as? [String: Any] {
 let kind = PermissionClassifier.kind(event: event, toolName: toolName)
 let msg = HookMessage(event: event, source: source, sessionId: sessionId, cwd: cwd,
                       toolName: toolName, toolSummary: toolSummary, permissionKind: kind,
-                      parentId: parentId, agentType: agentType)
+                      parentId: parentId, agentType: agentType, questions: questions,
+                      diffOld: diffOld, diffNew: diffNew, userPrompt: userPrompt, terminal: terminal)
 
 // Block ONLY for a binary permission. Non-binary prompts (a choice, not a grant) are sent
 // fire-and-forget so Claude's own multi-option prompt drives — the notch just notifies.

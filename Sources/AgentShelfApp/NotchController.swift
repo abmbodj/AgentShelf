@@ -82,22 +82,30 @@ final class NotchController: ObservableObject {
         guard let notch else { return }
         let hasSessions = !store.active.isEmpty
         let wantExpand = pinned || hovering || flashing || store.worstStatus == .waitingApproval
+        // Fix stale styling on whatever window already exists *before* touching anything
+        // async: a burst of hook events (PreToolUse, PermissionRequest, ...) can cancel the
+        // previous transition before it ever reaches the styling step below, leaving the panel
+        // stuck at DynamicNotchKit's default .screenSaver level — high enough to cover a system
+        // TCC "Allow/Don't Allow" dialog. This call is idempotent, so re-running it here on
+        // every refresh (not just after a fresh expand) closes that gap unconditionally.
+        applyWindowStyle()
         transition?.cancel()
         transition = Task {
             if wantExpand { await notch.expand() }
             else if hasSessions { await notch.compact() }
             else { await notch.hide() }
-            // DynamicNotchKit pins the panel at `.screenSaver` (1000), which covers system
-            // dialogs (TCC "Allow/Don't Allow"). Drop it below system alerts but keep it
-            // above app windows. The panel is recreated on each expand, so re-apply here.
-            if let window = notch.windowController?.window {
-                window.level = .statusBar
-                // Stay put during Mission Control / show-desktop, float over fullscreen
-                // apps, and stay out of screen recordings.
-                window.collectionBehavior.formUnion(
-                    [.fullScreenAuxiliary, .canJoinAllSpaces, .ignoresCycle, .stationary])
-                window.sharingType = .readOnly
-            }
+            // The panel is recreated on each expand (back to .screenSaver), so re-apply here too.
+            applyWindowStyle()
         }
+    }
+
+    /// Drop the panel below system alerts but keep it above app windows, and keep it out of
+    /// Mission Control / fullscreen / screen recordings. Safe to call repeatedly.
+    private func applyWindowStyle() {
+        guard let window = notch?.windowController?.window else { return }
+        window.level = .statusBar
+        window.collectionBehavior.formUnion(
+            [.fullScreenAuxiliary, .canJoinAllSpaces, .ignoresCycle, .stationary])
+        window.sharingType = .readOnly
     }
 }
