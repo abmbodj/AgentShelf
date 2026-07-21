@@ -42,7 +42,14 @@ final class NotchController: ObservableObject {
 
     /// Focus the editor window for a session's folder.
     func jump(_ session: Session) { jump(cwd: session.cwd) }
-    func jump(cwd: String) { JumpService.focus(cwd: cwd) }
+    func jump(cwd: String) {
+        JumpService.focus(cwd: cwd)
+        // You're leaving for the session — collapse the shelf so it can't cover whatever
+        // opens (e.g. a first-run macOS permission dialog appears top-center too).
+        pinned = false
+        hovering = false
+        Task { await notch?.hide() }
+    }
 
     /// Briefly expand to announce activity (launch / new session), then settle back to
     /// the pill (unless hovered/pinned/approval keeps it open).
@@ -68,6 +75,10 @@ final class NotchController: ObservableObject {
             if wantExpand { await notch.expand() }
             else if hasSessions { await notch.compact() }
             else { await notch.hide() }
+            // DynamicNotchKit pins the panel at `.screenSaver` (1000), which covers system
+            // dialogs (TCC "Allow/Don't Allow"). Drop it below system alerts but keep it
+            // above app windows. The panel is recreated on each expand, so re-apply here.
+            notch.windowController?.window?.level = .statusBar
         }
     }
 }
