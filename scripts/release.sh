@@ -20,7 +20,7 @@ PLIST="Resources/AgentShelf-Info.plist"
 ./scripts/build-app.sh release
 
 APP="AgentShelf.app"
-SIGN_ID=$(security find-identity -v -p codesigning | grep -m1 "Developer ID Application" | sed -E 's/.*"(.+)".*/\1/')
+SIGN_ID=$(security find-identity -v -p codesigning | grep -m1 "Developer ID Application" | sed -E 's/.*"(.+)".*/\1/' || true)
 
 if [ -n "$SIGN_ID" ]; then
   # Sign every loose executable in the bundle before signing the bundle itself —
