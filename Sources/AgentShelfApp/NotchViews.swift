@@ -279,7 +279,7 @@ private struct OpenInClaudeButton: View {
             Label("Open in Claude", systemImage: "arrow.up.right.square")
                 .font(.caption)
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.bordered)
     }
 }
 

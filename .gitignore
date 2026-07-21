@@ -3,3 +3,5 @@
 *.xcodeproj
 .DS_Store
 AgentShelf.app/
+AgentShelf-*.dmg
+Resources/AppIcon.icns

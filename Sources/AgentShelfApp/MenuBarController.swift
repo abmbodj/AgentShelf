@@ -9,6 +9,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let installer: ClaudeInstaller
     private let statusLineInstaller = StatusLineInstaller()
+    private var availableUpdateURL: URL?
 
     override init() {
         // The registered command points at the MANAGED copy (stable path, survives app
@@ -31,6 +32,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.delegate = self          // rebuild each time it opens (reflects live install state)
         item.menu = menu
         statusItem = item
+        Task { await checkForUpdate() }
+    }
+
+    /// Once per launch: if GitHub has a newer release than this build, surface a menu item
+    /// linking to it. No auto-download — just a nudge.
+    private func checkForUpdate() async {
+        guard let release = await UpdateChecker.fetchLatest() else { return }
+        let current = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0"
+        guard UpdateChecker.isNewer(release.tag, than: current) else { return }
+        availableUpdateURL = release.htmlURL   // picked up next time the menu opens (rebuilds live)
     }
 
     /// Keep our hook entries current for users who already opted in — refreshes the
@@ -51,6 +62,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let header = NSMenuItem(title: "Agent Shelf", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
+
+        if availableUpdateURL != nil {
+            add(menu, "Update available →", #selector(openUpdate))
+        }
+
         menu.addItem(.separator())
 
         add(menu, installed ? "Uninstall Claude Code Hooks" : "Install Claude Code Hooks",
@@ -181,6 +197,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         guard let name = sender.representedObject as? String else { return }
         UserDefaults.standard.set(name, forKey: "agentshelf.sound")
         NSSound(named: name)?.play()   // preview
+    }
+
+    @objc private func openUpdate() {
+        if let availableUpdateURL { NSWorkspace.shared.open(availableUpdateURL) }
     }
 
     @objc private func quit() { NSApp.terminate(nil) }

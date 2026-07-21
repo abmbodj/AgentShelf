@@ -1,17 +1,17 @@
 // swift-tools-version: 6.2
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 //
-// AgentShelf: vendored fork of MrKai77/DynamicNotchKit @ 1.1.0. Patched so the notch panel
-// renders see-through Liquid Glass instead of an opaque black fill (Views/NotchView.swift,
-// Views/NotchlessView.swift). Platform bumped to macOS 26 for the .glassEffect API; the
-// swift-docc-plugin dependency was dropped so builds stay offline-self-contained.
+// AgentShelf: vendored fork of MrKai77/DynamicNotchKit @ 1.1.0. The see-through Liquid Glass
+// patch (Views/NotchView.swift, Views/NotchlessView.swift) was reverted back to an opaque black
+// fill, so this no longer needs the macOS 26 .glassEffect API. The swift-docc-plugin dependency
+// was dropped so builds stay offline-self-contained.
 
 import PackageDescription
 
 let package = Package(
     name: "DynamicNotchKit",
     platforms: [
-        .macOS(.v26)
+        .macOS(.v14)
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.

@@ -100,3 +100,14 @@ private func root(of installer: StatusLineInstaller) throws -> [String: Any] {
     #expect(ClaudeUsage.windows(from: Data("{}".utf8)) == [])
     #expect(ClaudeUsage.windows(from: Data(#"{"rate_limits":{"five_hour":"nope"}}"#.utf8)) == [])
 }
+
+@Test func updateCheckerComparesVersions() {
+    #expect(UpdateChecker.isNewer("v0.2.0", than: "0.1.0"))
+    #expect(UpdateChecker.isNewer("0.2.0", than: "0.1.0"))       // "v" prefix optional
+    #expect(UpdateChecker.isNewer("v1.0.0", than: "0.9.9"))
+    #expect(UpdateChecker.isNewer("v0.1.1", than: "0.1"))        // missing component treated as 0
+    #expect(!UpdateChecker.isNewer("v0.1.0", than: "0.1.0"))     // equal
+    #expect(!UpdateChecker.isNewer("v0.1.0", than: "0.2.0"))     // older
+    #expect(!UpdateChecker.isNewer("not-a-version", than: "0.1.0"))   // malformed: fail closed
+    #expect(!UpdateChecker.isNewer("v1.0.0", than: "nope"))
+}

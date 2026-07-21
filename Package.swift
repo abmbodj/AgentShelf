@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "AgentShelf",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v14)],
     dependencies: [
         // Vendored + patched (see-through Liquid Glass background) — Vendor/DynamicNotchKit.
         .package(path: "Vendor/DynamicNotchKit"),
