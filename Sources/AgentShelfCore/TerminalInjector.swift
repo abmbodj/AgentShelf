@@ -13,6 +13,7 @@ public enum TerminalInjector {
     /// terminal isn't scriptable or no window's cwd matches — callers must fall back to
     /// "Open in Claude" rather than risk typing into the wrong window.
     public static func inject(keys: String, cwd: String, terminal: String?) -> Bool {
+        guard supports(terminal) else { return false }
         // Canonicalize via realpath (NOT URL.resolvingSymlinksInPath, which deliberately
         // leaves /tmp, /var, /etc unresolved on macOS): lsof and iTerm both report cwd through
         // the kernel's canonical form (/tmp -> /private/tmp), so an unresolved cwd never matches.
@@ -20,7 +21,19 @@ public enum TerminalInjector {
         switch terminal {
         case "iTerm.app": return injectITerm(keys: keys, cwd: cwd)
         case "Apple_Terminal": return injectAppleTerminal(keys: keys, cwd: cwd)
-        default: return false   // Ghostty and anything else: not AppleScript-able
+        default: return false
+        }
+    }
+
+    /// True if `inject` can ever succeed for this terminal. Ghostty, IDE-embedded terminals
+    /// (Cursor/VS Code's Claude Code extension runs `claude --input-format stream-json` with
+    /// no TTY menu at all — nothing to inject a keystroke into), and nil (no TERM_PROGRAM
+    /// captured) all return false. Callers use this to skip showing clickable options that
+    /// would only ever fail, in favor of a plain "open and answer it yourself" notice.
+    public static func supports(_ terminal: String?) -> Bool {
+        switch terminal {
+        case "iTerm.app", "Apple_Terminal": return true
+        default: return false
         }
     }
 
@@ -161,8 +174,11 @@ public enum TerminalInjector {
     /// realpath(3), not URL.resolvingSymlinksInPath (which leaves /tmp, /var, /etc
     /// unresolved on macOS) — this is the same canonicalization lsof's cwd output uses.
     private static func canonicalPath(_ path: String) -> String {
-        var buf = [Int8](repeating: 0, count: Int(PATH_MAX))
-        guard realpath(path, &buf) != nil else { return path }
-        return String(cString: buf)
+        var buf = [UInt8](repeating: 0, count: Int(PATH_MAX))
+        let ok: Bool = buf.withUnsafeMutableBufferPointer { ptr in
+            ptr.withMemoryRebound(to: CChar.self) { realpath(path, $0.baseAddress) != nil }
+        }
+        guard ok else { return path }
+        return String(decoding: buf.prefix(while: { $0 != 0 }), as: UTF8.self)
     }
 }

@@ -73,9 +73,14 @@ final class QuestionRequest: Identifiable {
     private(set) var resolved = false
     private let onResolve: () -> Void
 
-    /// nil if the message isn't a single-question, single-select AskUserQuestion.
+    /// nil if the message isn't a single-question, single-select AskUserQuestion, or if the
+    /// session's terminal can't be injected into at all (e.g. Cursor/VS Code's Claude Code
+    /// extension runs claude headlessly with no TTY menu — see TerminalInjector.supports).
+    /// Those fall back to the plain read-only AttentionNotice instead of showing options that
+    /// would only ever fail.
     init?(message: HookMessage, onResolve: @escaping () -> Void) {
-        guard let qs = message.questions, qs.count == 1,
+        guard TerminalInjector.supports(message.terminal),
+              let qs = message.questions, qs.count == 1,
               let q = qs.first, !q.multiSelect, !q.options.isEmpty else { return nil }
         self.sessionId = message.sessionId
         self.source = message.source
