@@ -23,7 +23,15 @@ final class NotchController: ObservableObject {
     init(store: SessionStore) { self.store = store }
 
     func start() {
-        notch = DynamicNotch(hoverBehavior: [.keepVisible, .increaseShadow]) {
+        // .auto never actually reaches DynamicNotchKit's custom-radii branch (it pattern-matches
+        // on the style stored at construction, and .auto only resolves shape/material choice, not
+        // radii) — so radii must be passed explicitly, replicating .auto's own screen-based
+        // .notch/.floating branching ourselves via the same public NSScreen APIs.
+        let style: DynamicNotchStyle = NSScreen.screens.first?.realNotchSize != nil
+            ? .notch(topCornerRadius: DesignTokens.expandedTopCornerRadius,
+                     bottomCornerRadius: DesignTokens.expandedBottomCornerRadius)
+            : .floating(cornerRadius: 20)
+        notch = DynamicNotch(hoverBehavior: [.keepVisible, .increaseShadow], style: style) {
             SessionListView(store: self.store, controller: self)
         } compactLeading: {
             PillLeadingView(store: self.store)
@@ -107,5 +115,8 @@ final class NotchController: ObservableObject {
         window.collectionBehavior.formUnion(
             [.fullScreenAuxiliary, .canJoinAllSpaces, .ignoresCycle, .stationary])
         window.sharingType = .readOnly
+        // Lock the panel to dark: keeps the Liquid Glass in its dark variant and vibrant text
+        // legible regardless of what's on the desktop behind the see-through panel.
+        window.appearance = NSAppearance(named: .darkAqua)
     }
 }

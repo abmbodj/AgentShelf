@@ -21,9 +21,7 @@ struct PillLeadingView: View {
 struct PillTrailingView: View {
     @ObservedObject var store: SessionStore
     var body: some View {
-        Circle()
-            .fill((store.worstStatus ?? .idle).color)
-            .frame(width: 9, height: 9)
+        StatusDot(color: (store.worstStatus ?? .idle).color, diameter: 9)
             .padding(.trailing, 4)
     }
 }
@@ -34,17 +32,18 @@ struct SessionListView: View {
     unowned let controller: NotchController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Agent Shelf").font(.headline).foregroundStyle(.white)
-                Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            // Slim, dim top strip: usage on the left, pin on the right, no wordmark. The whole
+            // strip is the pin affordance. Vibrant .secondary reads correctly over glass.
+            HStack(spacing: 6) {
                 if let usage = UsageCache.text {
                     Text(usage)
                         .font(.caption2).monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.secondary)
                 }
+                Spacer()
                 Image(systemName: controller.pinned ? "pin.fill" : "pin")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.6))
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
             .onTapGesture { controller.togglePin() }
@@ -61,7 +60,7 @@ struct SessionListView: View {
             }
 
             if store.active.isEmpty {
-                Text("Watching Claude Code…").font(.callout).foregroundStyle(.white.opacity(0.5))
+                Text("Watching Claude Code…").font(.callout).foregroundStyle(.secondary)
             } else {
                 ForEach(store.active) { session in
                     SessionRow(session: session)
@@ -70,8 +69,12 @@ struct SessionListView: View {
                 }
             }
         }
-        .padding(14)
-        .frame(width: 320, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 16)
+        .frame(width: DesignTokens.panelWidth, alignment: .leading)
+        // Glass is rendered by the (patched) DynamicNotchKit; the window is forced dark
+        // (NotchController) so glass + vibrant text stay legible over any desktop.
     }
 }
 
@@ -100,15 +103,15 @@ struct ApprovalCard: View {
                 DiffView(lines: request.diff)
             }
             HStack {
-                Button("Deny") { request.decide(.deny) }.buttonStyle(.bordered)
+                Button("Deny") { request.decide(.deny) }.buttonStyle(.glass)
                 Spacer()
                 // "Always" = allow + session-scoped rule for this tool (nothing on disk).
-                Button("Always") { request.decide(.allowAlways) }.buttonStyle(.bordered)
-                Button("Allow") { request.decide(.allow) }.buttonStyle(.borderedProminent)
+                Button("Always") { request.decide(.allowAlways) }.buttonStyle(.glass)
+                Button("Allow") { request.decide(.allow) }.buttonStyle(.glassProminent)
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: DesignTokens.cardCornerRadius, style: .continuous).fill(DesignTokens.elevatedSurface))
     }
 }
 
@@ -160,7 +163,7 @@ struct QuestionCard: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: DesignTokens.cardCornerRadius, style: .continuous).fill(DesignTokens.elevatedSurface))
     }
 }
 
@@ -179,11 +182,11 @@ struct NeedsInputCard: View {
             Text(notice.toolName).font(.caption.weight(.bold)).foregroundStyle(.yellow)
             HStack {
                 Spacer()
-                OpenInClaudeButton(action: onOpen).buttonStyle(.borderedProminent)
+                OpenInClaudeButton(action: onOpen)
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: DesignTokens.cardCornerRadius, style: .continuous).fill(DesignTokens.elevatedSurface))
     }
 }
 
@@ -226,7 +229,7 @@ struct DiffView: View {
             }
         }
         .padding(6)
-        .background(RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.25)))
+        .background(RoundedRectangle(cornerRadius: 6).fill(DesignTokens.insetSurface))
     }
 
     private func marker(for kind: DiffLine.Kind) -> String {
@@ -253,27 +256,28 @@ private struct OpenInClaudeButton: View {
             Label("Open in Claude", systemImage: "arrow.up.right.square")
                 .font(.caption)
         }
+        .buttonStyle(.glass)
     }
 }
 
 struct SessionRow: View {
     let session: Session
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 if session.isSubagent {
                     Image(systemName: "arrow.turn.down.right")
-                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.4))
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
-                Circle().fill(session.status.color)
-                    .frame(width: session.isSubagent ? 6 : 8, height: session.isSubagent ? 6 : 8)
+                StatusDot(color: session.status.color, diameter: session.isSubagent ? 7 : 9)
                 Text(session.displayLabel)
-                    .font(.system(.body, design: .rounded).weight(.semibold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: session.isSubagent ? 13 : 14, weight: .semibold))
+                    .tracking(-0.1)
+                    .foregroundStyle(.primary)
                 // Subagents share the parent's folder — skip it, the branch glyph already implies it.
                 if !session.isSubagent {
                     Text(folderLine)
-                        .font(.body).foregroundStyle(.white.opacity(0.7))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }
                 if let terminal = session.terminalLabel {
@@ -281,21 +285,22 @@ struct SessionRow: View {
                 }
                 Spacer()
                 Text(session.ageLabel)
-                    .font(.caption2).monospacedDigit().foregroundStyle(.white.opacity(0.45))
+                    .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
             }
             if let prompt = session.lastUserPrompt {
                 Text("You: \(prompt)")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.55))
+                    .font(.caption2).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.tail)
-                    .padding(.leading, 16)
+                    .padding(.leading, 17)
             }
             if let activity = session.activityLabel {
                 Text(activity)
-                    .font(.caption2).foregroundStyle(.white.opacity(0.45))
+                    .font(.caption2).foregroundStyle(.tertiary)
                     .lineLimit(1).truncationMode(.middle)
-                    .padding(.leading, 16)
+                    .padding(.leading, 17)
             }
         }
+        .padding(.vertical, 2)
         .padding(.leading, session.isSubagent ? 16 : 0)
     }
 
@@ -309,14 +314,26 @@ struct SessionRow: View {
     }
 }
 
-/// Small rounded badge for a row's terminal tag ("iTerm", "Terminal", "Ghostty").
+/// Status dot with a soft status-colored glow, so state reads at a glance on the glass.
+private struct StatusDot: View {
+    let color: Color
+    let diameter: CGFloat
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: diameter, height: diameter)
+            .shadow(color: color.opacity(0.7), radius: diameter * 0.45)
+    }
+}
+
+/// Small capsule badge for a row's terminal tag ("iTerm", "Terminal", "Ghostty").
 private struct TagPill: View {
     let text: String
     var body: some View {
         Text(text)
             .font(.caption2.weight(.medium))
-            .foregroundStyle(.white.opacity(0.6))
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.1)))
+            .background(Capsule().fill(.white.opacity(0.12)))
     }
 }

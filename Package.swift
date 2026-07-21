@@ -1,11 +1,12 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "AgentShelf",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     dependencies: [
-        .package(url: "https://github.com/MrKai77/DynamicNotchKit", from: "1.1.0"),
+        // Vendored + patched (see-through Liquid Glass background) — Vendor/DynamicNotchKit.
+        .package(path: "Vendor/DynamicNotchKit"),
     ],
     targets: [
         .target(name: "AgentShelfCore"),
