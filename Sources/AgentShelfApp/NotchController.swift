@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import DynamicNotchKit
 import AgentShelfCore
 
@@ -15,6 +16,7 @@ final class NotchController: ObservableObject {
     private var notch: AppNotch?
     private var transition: Task<Void, Never>?
     private var flashTask: Task<Void, Never>?
+    private var cancellable: AnyCancellable?
 
     init(store: SessionStore) { self.store = store }
 
@@ -26,6 +28,12 @@ final class NotchController: ObservableObject {
         } compactTrailing: {
             PillTrailingView(store: self.store)
         }
+        // Auto-reconcile the notch on any store change (sessions, approvals, notice dismissal),
+        // so the store never needs to know about the controller. objectWillChange fires before
+        // the mutation commits, hence the main-actor hop.
+        cancellable = store.objectWillChange.sink { [weak self] in
+            Task { @MainActor in self?.refresh() }
+        }
         flash()   // proof-of-life: briefly open the panel on launch
     }
 
@@ -33,7 +41,8 @@ final class NotchController: ObservableObject {
     func togglePin() { pinned.toggle(); refresh() }
 
     /// Focus the editor window for a session's folder.
-    func jump(_ session: Session) { JumpService.focus(cwd: session.cwd) }
+    func jump(_ session: Session) { jump(cwd: session.cwd) }
+    func jump(cwd: String) { JumpService.focus(cwd: cwd) }
 
     /// Briefly expand to announce activity (launch / new session), then settle back to
     /// the pill (unless hovered/pinned/approval keeps it open).

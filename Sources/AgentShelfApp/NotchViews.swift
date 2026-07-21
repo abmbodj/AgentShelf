@@ -44,9 +44,12 @@ struct SessionListView: View {
             .contentShape(Rectangle())
             .onTapGesture { controller.togglePin() }
 
-            // Pending approval (one at a time) drops in above the list.
+            // Attention items drop in above the list: a binary Allow/Deny approval, or a
+            // non-binary "needs input" notice (a choice the notch can't make for you).
             if let approval = store.pendingApprovals.first {
-                ApprovalCard(request: approval)
+                ApprovalCard(request: approval) { controller.jump(cwd: approval.cwd) }
+            } else if let notice = store.pendingNotices.first {
+                NeedsInputCard(notice: notice) { controller.jump(cwd: notice.cwd) }
             }
 
             if store.active.isEmpty {
@@ -65,15 +68,18 @@ struct SessionListView: View {
     }
 }
 
-/// Auto-dropped permission prompt with Allow/Deny.
+/// Auto-dropped binary permission prompt: Allow/Deny, plus an escape to Claude's full prompt.
 struct ApprovalCard: View {
     let request: ApprovalRequest
+    let onOpen: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.orange)
                 Text("\(request.source.displayName) · \(request.folderName)")
                     .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Spacer()
+                OpenInClaudeButton(action: onOpen)
             }
             Text(request.toolName).font(.caption.weight(.bold)).foregroundStyle(.orange)
             if !request.toolSummary.isEmpty {
@@ -90,6 +96,39 @@ struct ApprovalCard: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08)))
+    }
+}
+
+/// Non-binary prompt (a choice, not a grant): the notch can't decide it — it just points you
+/// to Claude's own multi-option prompt. No Allow/Deny (that would misrepresent the choice).
+struct NeedsInputCard: View {
+    let notice: AttentionNotice
+    let onOpen: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "questionmark.bubble.fill").foregroundStyle(.yellow)
+                Text("\(notice.source.displayName) · \(notice.folderName) needs your input")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+            }
+            Text(notice.toolName).font(.caption.weight(.bold)).foregroundStyle(.yellow)
+            HStack {
+                Spacer()
+                OpenInClaudeButton(action: onOpen).buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08)))
+    }
+}
+
+private struct OpenInClaudeButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Label("Open in Claude", systemImage: "arrow.up.right.square")
+                .font(.caption)
+        }
     }
 }
 

@@ -15,31 +15,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // we hop back onto the main actor to mutate state.
         do {
             try server.start { [store, controller] msg in
-                // Approval: block this connection thread until the user decides or we hit
-                // our own deadline (< the hook's), then hand the decision back to the hook.
-                if msg.needsDecision {
+                switch msg.permissionKind {
+                case .binary:
+                    // Block this connection thread until the user decides or we hit our own
+                    // deadline (< the hook's), then hand the decision back to the hook.
                     let sem = DispatchSemaphore(value: 0)
                     let box = DecisionBox()
                     Task { @MainActor in
                         store.presentApproval(msg) { decision in box.set(decision); sem.signal() }
-                        controller.refresh()
+                        controller.flash()
                     }
                     let outcome = sem.wait(timeout: .now() + 55)
-                    Task { @MainActor in
-                        store.removeApproval(sessionId: msg.sessionId)
-                        controller.refresh()
-                    }
+                    Task { @MainActor in store.removeApproval(sessionId: msg.sessionId) }
                     return outcome == .timedOut ? nil : box.get()
-                }
-                // Status-only events.
-                Task { @MainActor in
-                    let isNew = store.apply(msg)
-                    if isNew { controller.flash() } else { controller.refresh() }
-                    if ProcessInfo.processInfo.environment["AGENTSHELF_DEBUG"] != nil {
-                        NSLog("AgentShelf: \(msg.event) \(msg.source.displayName) sessions=\(store.active.count) worst=\(store.worstStatus?.label ?? "-")")
+
+                case .nonBinary:
+                    // A choice, not a grant: don't block. Notify + let Claude's own prompt drive.
+                    Task { @MainActor in
+                        store.presentNeedsInput(msg)
+                        controller.flash()
                     }
+                    return nil
+
+                case .none:
+                    Task { @MainActor in
+                        let isNew = store.apply(msg)
+                        if isNew { controller.flash() }
+                        if ProcessInfo.processInfo.environment["AGENTSHELF_DEBUG"] != nil {
+                            NSLog("AgentShelf: \(msg.event) \(msg.source.displayName) sessions=\(store.active.count) worst=\(store.worstStatus?.label ?? "-")")
+                        }
+                    }
+                    return nil
                 }
-                return nil
             }
         } catch {
             NSLog("AgentShelf: socket server failed to start: \(error)")

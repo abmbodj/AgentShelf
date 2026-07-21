@@ -18,6 +18,17 @@ let raw = FileHandle.standardInput.readDataToEndOfFile()
 let obj = ((try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]) ?? [:]
 
 let event = field(obj, "hook_event_name") ?? "Unknown"
+
+// Off-by-default tuning aid: dump raw PermissionRequest payloads so we can confirm/extend
+// the non-binary tool denylist against real data. See PermissionClassifier.
+if event == "PermissionRequest", ProcessInfo.processInfo.environment["AGENTSHELF_DEBUG_PAYLOAD"] != nil {
+    let line = (String(data: raw, encoding: .utf8) ?? "<non-utf8>") + "\n"
+    if let fh = try? FileHandle(forWritingTo: URL(fileURLWithPath: "/tmp/agentshelf-payloads.log")) {
+        fh.seekToEndOfFile(); fh.write(Data(line.utf8)); try? fh.close()
+    } else {
+        try? line.data(using: .utf8)?.write(to: URL(fileURLWithPath: "/tmp/agentshelf-payloads.log"))
+    }
+}
 // session_id is the parent's for subagents; agent_id identifies a subagent.
 let sessionId = field(obj, "agent_id") ?? field(obj, "session_id") ?? "unknown"
 let cwd = field(obj, "cwd") ?? FileManager.default.currentDirectoryPath
@@ -32,15 +43,17 @@ if let input = obj["tool_input"] as? [String: Any] {
     }
 }
 
-let needsDecision = (event == "PermissionRequest")
+let kind = PermissionClassifier.kind(event: event, toolName: toolName)
 let msg = HookMessage(event: event, source: source, sessionId: sessionId, cwd: cwd,
-                      toolName: toolName, toolSummary: toolSummary, needsDecision: needsDecision)
+                      toolName: toolName, toolSummary: toolSummary, permissionKind: kind)
 
-let timeout = needsDecision ? (Double(ProcessInfo.processInfo.environment["AGENTSHELF_APPROVAL_TIMEOUT"] ?? "") ?? 60) : 0
+// Block ONLY for a binary permission. Non-binary prompts (a choice, not a grant) are sent
+// fire-and-forget so Claude's own multi-option prompt drives — the notch just notifies.
+let timeout = (kind == .binary) ? (Double(ProcessInfo.processInfo.environment["AGENTSHELF_APPROVAL_TIMEOUT"] ?? "") ?? 60) : 0
 let decision = SocketClient.send(msg, to: AgentShelf.socketPath, awaitDecisionTimeout: timeout)
 
-// Only PermissionRequest produces stdout, and only when we actually got a decision.
-if needsDecision, let decision {
+// Only a binary PermissionRequest produces stdout, and only when we got a decision.
+if kind == .binary, let decision {
     let reply: [String: Any] = [
         "hookSpecificOutput": [
             "hookEventName": "PermissionRequest",

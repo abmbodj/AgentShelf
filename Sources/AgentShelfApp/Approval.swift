@@ -41,6 +41,26 @@ final class ApprovalRequest: Identifiable {
     }
 }
 
+/// A non-binary permission (a choice, not a grant): the notch can't decide it, so this is a
+/// non-blocking notice that just points the user to Claude's own prompt. No decision closure.
+@MainActor
+final class AttentionNotice: Identifiable {
+    let id = UUID()
+    let sessionId: String
+    let source: AgentSource
+    let cwd: String
+    let toolName: String
+
+    init(message: HookMessage) {
+        self.sessionId = message.sessionId
+        self.source = message.source
+        self.cwd = message.cwd
+        self.toolName = message.toolName ?? "input"
+    }
+
+    var folderName: String { (cwd as NSString).lastPathComponent }
+}
+
 /// Approval sound, gated on the user's mute/sound preferences (set in the settings window).
 enum ApprovalSound {
     static func play() {

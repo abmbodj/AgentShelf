@@ -6,6 +6,7 @@ import AgentShelfCore
 final class SessionStore: ObservableObject {
     @Published private(set) var sessions: [Session] = []
     @Published private(set) var pendingApprovals: [ApprovalRequest] = []
+    @Published private(set) var pendingNotices: [AttentionNotice] = []
     private var index: [String: Int] = [:]
 
     /// Map a hook event to the status it implies (nil = leave status unchanged).
@@ -51,6 +52,24 @@ final class SessionStore: ObservableObject {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(150))
                 req.decide(behavior)
+            }
+        }
+    }
+
+    /// Show a non-blocking "needs input" notice for a non-binary prompt (a choice, not a
+    /// grant). Auto-dismisses after a few seconds — the user answers in Claude's own UI.
+    func presentNeedsInput(_ msg: HookMessage) {
+        apply(msg)
+        guard !pendingNotices.contains(where: { $0.sessionId == msg.sessionId }) else { return }
+        let notice = AttentionNotice(message: msg)
+        pendingNotices.append(notice)
+        ApprovalSound.play()
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            pendingNotices.removeAll { $0.id == notice.id }
+            // Clear the waiting state so the pill/notch don't stay stuck open.
+            if let i = index[msg.sessionId], sessions[i].status == .waitingApproval {
+                sessions[i].status = .running
             }
         }
     }

@@ -26,7 +26,7 @@ import Foundation
     defer { server.stop() }
 
     let req = HookMessage(event: "PermissionRequest", source: .claudeCode,
-                          sessionId: "s1", cwd: "/tmp", needsDecision: true)
+                          sessionId: "s1", cwd: "/tmp", permissionKind: .binary)
     let decision = SocketClient.send(req, to: path, awaitDecisionTimeout: 5)
     #expect(decision?.behavior == .deny)
 }
@@ -47,6 +47,6 @@ import Foundation
     // No server listening -> connect fails -> nil (agent proceeds via its own prompt).
     let path = NSTemporaryDirectory() + "as-missing-\(UUID().uuidString).sock"
     let req = HookMessage(event: "PermissionRequest", source: .claudeCode,
-                          sessionId: "s1", cwd: "/tmp", needsDecision: true)
+                          sessionId: "s1", cwd: "/tmp", permissionKind: .binary)
     #expect(SocketClient.send(req, to: path, awaitDecisionTimeout: 1) == nil)
 }

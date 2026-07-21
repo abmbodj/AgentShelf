@@ -10,18 +10,22 @@ public struct HookMessage: Codable, Sendable {
     public var cwd: String
     public var toolName: String?      // for PreToolUse / PermissionRequest
     public var toolSummary: String?   // human-readable action, for the approval panel
-    public var needsDecision: Bool    // true only for PermissionRequest
+    public var permissionKind: PermissionKind   // .binary / .nonBinary / .none
 
     public init(event: String, source: AgentSource, sessionId: String, cwd: String,
-                toolName: String? = nil, toolSummary: String? = nil, needsDecision: Bool = false) {
+                toolName: String? = nil, toolSummary: String? = nil,
+                permissionKind: PermissionKind = .none) {
         self.event = event
         self.source = source
         self.sessionId = sessionId
         self.cwd = cwd
         self.toolName = toolName
         self.toolSummary = toolSummary
-        self.needsDecision = needsDecision
+        self.permissionKind = permissionKind
     }
+
+    /// The hook blocks for a decision only on a binary permission.
+    public var needsDecision: Bool { permissionKind == .binary }
 }
 
 /// The app's reply for a PermissionRequest. Mirrors Claude Code's decision behavior.
