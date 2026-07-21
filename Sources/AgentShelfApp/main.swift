@@ -22,21 +22,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .binary:
                     // Block this connection thread until the user decides or we hit our own
                     // deadline (< the hook's), then hand the decision back to the hook.
+                    // The deadline is ~24h — the card waits for a human; "Open in Claude"
+                    // resolves early with nil to bail back to Claude's own prompt.
                     let sem = DispatchSemaphore(value: 0)
                     let box = DecisionBox()
                     Task { @MainActor in
                         store.presentApproval(msg) { decision in box.set(decision); sem.signal() }
                         controller.flash()
                     }
-                    let outcome = sem.wait(timeout: .now() + 55)
+                    let outcome = sem.wait(timeout: .now() + AgentShelf.appDecisionTimeout)
                     Task { @MainActor in store.removeApproval(sessionId: msg.sessionId) }
                     return outcome == .timedOut ? nil : box.get()
 
                 case .nonBinary:
                     // A choice, not a grant: don't block. Notify + let Claude's own prompt drive.
                     Task { @MainActor in
-                        store.presentNeedsInput(msg)
-                        controller.flash()
+                        let quiet = NotchController.jumpTargetIsFrontmost
+                        store.presentNeedsInput(msg, quiet: quiet)
+                        if !quiet { controller.flash() }
                     }
                     return nil
 
@@ -46,7 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             store.endSession(msg.sessionId)
                         } else {
                             let isNew = store.apply(msg)
-                            if isNew { controller.flash() }
+                            // New-session flash is noise if you're already in the editor.
+                            if isNew, !NotchController.jumpTargetIsFrontmost { controller.flash() }
                         }
                         if ProcessInfo.processInfo.environment["AGENTSHELF_DEBUG"] != nil {
                             NSLog("AgentShelf: \(msg.event) \(msg.source.displayName) sessions=\(store.active.count) worst=\(store.worstStatus?.label ?? "-")")

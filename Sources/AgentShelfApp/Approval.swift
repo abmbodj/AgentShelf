@@ -7,7 +7,7 @@ import AgentShelfCore
 final class DecisionBox: @unchecked Sendable {
     private let lock = NSLock()
     private var value: Decision?
-    func set(_ d: Decision) { lock.lock(); value = d; lock.unlock() }
+    func set(_ d: Decision?) { lock.lock(); value = d; lock.unlock() }
     func get() -> Decision? { lock.lock(); defer { lock.unlock() }; return value }
 }
 
@@ -20,10 +20,10 @@ final class ApprovalRequest: Identifiable {
     let cwd: String
     let toolName: String
     let toolSummary: String
-    private let onDecide: (Decision) -> Void
+    private let onDecide: (Decision?) -> Void
     private(set) var resolved = false
 
-    init(message: HookMessage, onDecide: @escaping (Decision) -> Void) {
+    init(message: HookMessage, onDecide: @escaping (Decision?) -> Void) {
         self.sessionId = message.sessionId
         self.source = message.source
         self.cwd = message.cwd
@@ -38,6 +38,14 @@ final class ApprovalRequest: Identifiable {
         guard !resolved else { return }
         resolved = true
         onDecide(Decision(behavior))
+    }
+
+    /// Hand the prompt back to Claude's own UI: resolve with no reply, so the hook
+    /// prints nothing and Claude re-prompts natively (used by "Open in Claude").
+    func pass() {
+        guard !resolved else { return }
+        resolved = true
+        onDecide(nil)
     }
 }
 

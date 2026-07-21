@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Combine
 import DynamicNotchKit
@@ -17,6 +18,7 @@ final class NotchController: ObservableObject {
     private var transition: Task<Void, Never>?
     private var flashTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
+    private var hoverCancellable: AnyCancellable?
 
     init(store: SessionStore) { self.store = store }
 
@@ -34,11 +36,21 @@ final class NotchController: ObservableObject {
         cancellable = store.objectWillChange.sink { [weak self] in
             Task { @MainActor in self?.refresh() }
         }
+        // The library already tracks hover over the whole notch (pill + expanded) —
+        // forward it instead of adding our own .onHover on the pill views.
+        hoverCancellable = notch?.$isHovering.sink { [weak self] h in self?.setHovering(h) }
         flash()   // proof-of-life: briefly open the panel on launch
     }
 
     func setHovering(_ h: Bool) { hovering = h; refresh() }
     func togglePin() { pinned.toggle(); refresh() }
+
+    /// True when the user is already looking at the app we'd jump to — routine
+    /// flash/sound is noise then. Approvals still surface regardless.
+    static var jumpTargetIsFrontmost: Bool {
+        let name = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+        return ["Cursor", "Visual Studio Code", "Code"].contains(name)
+    }
 
     /// Focus the editor window for a session's folder.
     func jump(_ session: Session) { jump(cwd: session.cwd) }
@@ -78,7 +90,14 @@ final class NotchController: ObservableObject {
             // DynamicNotchKit pins the panel at `.screenSaver` (1000), which covers system
             // dialogs (TCC "Allow/Don't Allow"). Drop it below system alerts but keep it
             // above app windows. The panel is recreated on each expand, so re-apply here.
-            notch.windowController?.window?.level = .statusBar
+            if let window = notch.windowController?.window {
+                window.level = .statusBar
+                // Stay put during Mission Control / show-desktop, float over fullscreen
+                // apps, and stay out of screen recordings.
+                window.collectionBehavior.formUnion(
+                    [.fullScreenAuxiliary, .canJoinAllSpaces, .ignoresCycle, .stationary])
+                window.sharingType = .readOnly
+            }
         }
     }
 }

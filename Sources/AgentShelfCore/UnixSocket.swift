@@ -56,6 +56,9 @@ public final class UnixSocketServer: @unchecked Sendable {
     public init(path: String) { self.path = path }
 
     public func start(handler: @escaping @Sendable (HookMessage) -> Decision?) throws {
+        try? FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: path).deletingLastPathComponent(),
+            withIntermediateDirectories: true)
         unlink(path)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.create(errno) }

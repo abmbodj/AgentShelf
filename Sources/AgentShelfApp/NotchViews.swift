@@ -8,7 +8,7 @@ struct PillLeadingView: View {
         HStack(spacing: 5) {
             Image(systemName: "cpu")
                 .font(.system(size: 11, weight: .semibold))
-            Text("\(store.active.count)")
+            Text("\(store.topLevelCount)")
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .monospacedDigit()
         }
@@ -64,7 +64,6 @@ struct SessionListView: View {
         }
         .padding(14)
         .frame(width: 320, alignment: .leading)
-        .onHover { controller.setHovering($0) }
     }
 }
 
@@ -79,7 +78,8 @@ struct ApprovalCard: View {
                 Text("\(request.source.displayName) · \(request.folderName)")
                     .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 Spacer()
-                OpenInClaudeButton(action: onOpen)
+                // Hand the prompt back (no reply) so Claude's own prompt is live on arrival.
+                OpenInClaudeButton { request.pass(); onOpen() }
             }
             Text(request.toolName).font(.caption.weight(.bold)).foregroundStyle(.orange)
             if !request.toolSummary.isEmpty {
@@ -91,6 +91,8 @@ struct ApprovalCard: View {
             HStack {
                 Button("Deny") { request.decide(.deny) }.buttonStyle(.bordered)
                 Spacer()
+                // "Always" = allow + session-scoped rule for this tool (nothing on disk).
+                Button("Always") { request.decide(.allowAlways) }.buttonStyle(.bordered)
                 Button("Allow") { request.decide(.allow) }.buttonStyle(.borderedProminent)
             }
         }
@@ -135,17 +137,43 @@ private struct OpenInClaudeButton: View {
 struct SessionRow: View {
     let session: Session
     var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(session.status.color).frame(width: 8, height: 8)
-            Text(session.source.displayName)
-                .font(.system(.body, design: .rounded).weight(.semibold))
-                .foregroundStyle(.white)
-            Text(session.folderName)
-                .font(.body).foregroundStyle(.white.opacity(0.7))
-                .lineLimit(1).truncationMode(.middle)
-            Spacer()
-            Text(session.status.label)
-                .font(.caption).foregroundStyle(session.status.color)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                if session.isSubagent {
+                    Image(systemName: "arrow.turn.down.right")
+                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.4))
+                }
+                Circle().fill(session.status.color)
+                    .frame(width: session.isSubagent ? 6 : 8, height: session.isSubagent ? 6 : 8)
+                Text(session.displayLabel)
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                    .foregroundStyle(.white)
+                // Subagents share the parent's folder — skip it, the branch glyph already implies it.
+                if !session.isSubagent {
+                    Text(folderLine)
+                        .font(.body).foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer()
+                Text(session.status.label)
+                    .font(.caption).foregroundStyle(session.status.color)
+            }
+            if let tool = session.lastTool {
+                Text("\(tool) · \(session.ageLabel)")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.leading, 16)
+            }
         }
+        .padding(.leading, session.isSubagent ? 16 : 0)
+    }
+
+    /// "folder (branch)" — branch via a 30s TTL cache; never resolve VCS in a view
+    /// body uncached (upstream's 99%-CPU incident).
+    private var folderLine: String {
+        if let branch = BranchCache.branch(for: session.cwd) {
+            return "\(session.folderName) (\(branch))"
+        }
+        return session.folderName
     }
 }

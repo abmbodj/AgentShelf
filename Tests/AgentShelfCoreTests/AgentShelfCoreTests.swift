@@ -3,7 +3,32 @@ import Foundation
 @testable import AgentShelfCore
 
 @Test func socketPathIsStable() {
-    #expect(AgentShelf.socketPath == "/tmp/agentshelf.sock")
+    // In App Support (periodic /tmp cleanup would delete a long-lived socket).
+    #expect(AgentShelf.socketPath.hasSuffix("Library/Application Support/AgentShelf/agentshelf.sock"))
+    #expect(!AgentShelf.socketPath.hasPrefix("/tmp"))
+}
+
+@Test func approvalDeadlineChainIsOrdered() {
+    // Each stage must resolve before the outer one kills it (all expiries fail open).
+    #expect(Double(AgentShelf.hookEntryTimeout) > AgentShelf.hookDecisionTimeout)
+    #expect(AgentShelf.hookDecisionTimeout > AgentShelf.appDecisionTimeout)
+}
+
+@Test func claudeDecisionShapes() throws {
+    #expect(Decision(.allow).claudeDecision(toolName: "Bash") as? [String: String] == ["behavior": "allow"])
+    #expect(Decision(.deny).claudeDecision(toolName: "Bash") as? [String: String] == ["behavior": "deny"])
+
+    let always = Decision(.allowAlways).claudeDecision(toolName: "Bash")
+    #expect(always["behavior"] as? String == "allow")
+    let updates = try #require(always["updatedPermissions"] as? [[String: Any]])
+    #expect(updates.count == 1)
+    #expect(updates[0]["type"] as? String == "addRules")
+    #expect(updates[0]["behavior"] as? String == "allow")
+    #expect(updates[0]["destination"] as? String == "session")
+    #expect(updates[0]["rules"] as? [[String: String]] == [["toolName": "Bash"]])
+
+    // No tool name to build a rule from -> degrade to a plain allow.
+    #expect(Decision(.allowAlways).claudeDecision(toolName: nil) as? [String: String] == ["behavior": "allow"])
 }
 
 @Test func capabilityTiering() {

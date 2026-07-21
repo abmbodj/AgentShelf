@@ -24,6 +24,7 @@ public struct ClaudeInstaller {
         ("PreToolUse", true),
         ("PermissionRequest", true),
         ("Stop", false),
+        ("SubagentStop", false), // mark a finished subagent idle so it prunes out
         ("SessionEnd", false),   // remove the session from the shelf when it truly ends
     ]
 
@@ -74,12 +75,19 @@ public struct ClaudeInstaller {
 
     public func install() throws {
         var (root, originalBytes) = try loadRoot()
-        var hooks = root["hooks"] as? [String: Any] ?? [:]
+        // Sanitize-then-append: strip any entry we ever added, then add the current one.
+        // Idempotent AND self-upgrading — a stale binary path or a newly-required field
+        // (e.g. the PermissionRequest timeout) is fixed by the next install/reconcile.
+        var hooks = removingOurs(root["hooks"] as? [String: Any] ?? [:])
 
         for (event, isTool) in Self.events {
             var evGroups = groups(hooks, event)
-            if evGroups.contains(where: groupContainsOurs) { continue }   // idempotent
-            let commandHook: [String: Any] = ["type": "command", "command": hookCommand]
+            var commandHook: [String: Any] = ["type": "command", "command": hookCommand]
+            if event == "PermissionRequest" {
+                // Without this, Claude Code kills the hook at its default timeout and
+                // FAILS OPEN — the approval must be allowed to wait for a human.
+                commandHook["timeout"] = AgentShelf.hookEntryTimeout
+            }
             var group: [String: Any] = ["hooks": [commandHook]]
             if isTool { group["matcher"] = "*" }
             evGroups.append(group)
@@ -94,11 +102,10 @@ public struct ClaudeInstaller {
         try write(serialize(root), to: settingsURL)
     }
 
-    public func uninstall() throws {
-        guard FileManager.default.fileExists(atPath: settingsURL.path) else { return }
-        var (root, _) = try loadRoot()
-        guard var hooks = root["hooks"] as? [String: Any] else { cleanupBackup(); return }
-
+    /// Remove every entry we own (marker match) from all our events, preserving foreign
+    /// hooks that share a group. Events left empty are dropped.
+    private func removingOurs(_ hooks: [String: Any]) -> [String: Any] {
+        var hooks = hooks
         for (event, _) in Self.events {
             let cleaned = groups(hooks, event).compactMap { group -> [String: Any]? in
                 var group = group
@@ -110,7 +117,16 @@ public struct ClaudeInstaller {
             }
             if cleaned.isEmpty { hooks.removeValue(forKey: event) } else { hooks[event] = cleaned }
         }
-        if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
+        return hooks
+    }
+
+    public func uninstall() throws {
+        guard FileManager.default.fileExists(atPath: settingsURL.path) else { return }
+        var (root, _) = try loadRoot()
+        guard let hooks = root["hooks"] as? [String: Any] else { cleanupBackup(); return }
+
+        let cleanedHooks = removingOurs(hooks)
+        if cleanedHooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = cleanedHooks }
 
         // Byte-exact restore: if removing our entries reproduces the backed-up config,
         // write the original bytes verbatim rather than a reserialized version.

@@ -11,10 +11,13 @@ public struct HookMessage: Codable, Sendable {
     public var toolName: String?      // for PreToolUse / PermissionRequest
     public var toolSummary: String?   // human-readable action, for the approval panel
     public var permissionKind: PermissionKind   // .binary / .nonBinary / .none
+    public var parentId: String?      // parent session id — set only when this is a subagent
+    public var agentType: String?     // subagent label, e.g. "explore" / "code-reviewer"
 
     public init(event: String, source: AgentSource, sessionId: String, cwd: String,
                 toolName: String? = nil, toolSummary: String? = nil,
-                permissionKind: PermissionKind = .none) {
+                permissionKind: PermissionKind = .none,
+                parentId: String? = nil, agentType: String? = nil) {
         self.event = event
         self.source = source
         self.sessionId = sessionId
@@ -22,6 +25,8 @@ public struct HookMessage: Codable, Sendable {
         self.toolName = toolName
         self.toolSummary = toolSummary
         self.permissionKind = permissionKind
+        self.parentId = parentId
+        self.agentType = agentType
     }
 
     /// The hook blocks for a decision only on a binary permission.
@@ -29,8 +34,30 @@ public struct HookMessage: Codable, Sendable {
 }
 
 /// The app's reply for a PermissionRequest. Mirrors Claude Code's decision behavior.
+/// `allowAlways` = allow now AND add a session-scoped rule so this tool stops asking.
 public struct Decision: Codable, Sendable {
-    public enum Behavior: String, Codable, Sendable { case allow, deny }
+    public enum Behavior: String, Codable, Sendable { case allow, deny, allowAlways }
     public var behavior: Behavior
     public init(_ behavior: Behavior) { self.behavior = behavior }
+
+    /// The decision object Claude Code expects inside the PermissionRequest reply.
+    /// allowAlways carries an addRules permission update (tool-level, session-scoped —
+    /// the safest "always" there is; nothing is written to any settings file).
+    public func claudeDecision(toolName: String?) -> [String: Any] {
+        switch behavior {
+        case .allow: return ["behavior": "allow"]
+        case .deny: return ["behavior": "deny"]
+        case .allowAlways:
+            guard let toolName else { return ["behavior": "allow"] }
+            return [
+                "behavior": "allow",
+                "updatedPermissions": [[
+                    "type": "addRules",
+                    "rules": [["toolName": toolName]],
+                    "behavior": "allow",
+                    "destination": "session",
+                ]],
+            ]
+        }
+    }
 }

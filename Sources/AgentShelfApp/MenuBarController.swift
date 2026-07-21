@@ -10,14 +10,17 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let installer: ClaudeInstaller
 
     override init() {
-        installer = ClaudeInstaller(hookCommand: "\(Self.hookPath()) claudeCode")
+        // The registered command points at the MANAGED copy (stable path, survives app
+        // rebuilds/moves). Single-quoted: the path contains "Application Support".
+        installer = ClaudeInstaller(hookCommand: "'\(ManagedHookBinary.url.path)' claudeCode")
         super.init()
     }
 
-    static func hookPath() -> String {
-        let dir = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
+    /// The hook binary shipped next to the app executable — the copy source.
+    static func bundledHookURL() -> URL {
+        (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
             .deletingLastPathComponent()
-        return dir.appendingPathComponent("agentshelf-hook").path
+            .appendingPathComponent("agentshelf-hook")
     }
 
     func install() {
@@ -29,11 +32,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         statusItem = item
     }
 
-    /// Keep our hook entries current for users who already opted in — adds any newly-required
-    /// own-events (e.g. SessionEnd) across app updates. Idempotent, surgical, never touches
-    /// entries we didn't add.
+    /// Keep our hook entries current for users who already opted in — refreshes the
+    /// managed binary copy and upgrades our settings entries (new events, timeout,
+    /// managed path) across app updates. Idempotent, surgical, never touches entries
+    /// we didn't add.
     func reconcileHooksIfInstalled() {
         guard (try? installer.isInstalled()) == true else { return }
+        _ = try? ManagedHookBinary.install(from: Self.bundledHookURL())
         try? installer.install()
     }
 
@@ -83,8 +88,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func toggleHooks() {
         do {
-            if (try? installer.isInstalled()) == true { try installer.uninstall() }
-            else { try installer.install() }
+            if (try? installer.isInstalled()) == true {
+                try installer.uninstall()
+            } else {
+                try ManagedHookBinary.install(from: Self.bundledHookURL())
+                try installer.install()
+            }
         } catch {
             let alert = NSAlert()
             alert.messageText = "Hook update failed"

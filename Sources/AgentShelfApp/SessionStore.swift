@@ -25,22 +25,32 @@ final class SessionStore: ObservableObject {
         let newStatus = Self.status(for: msg.event)
         let isNew: Bool
         if let i = index[msg.sessionId] {
-            if let newStatus { sessions[i].status = newStatus }
+            // A pending approval owns the status: a late running event (parallel tool,
+            // subagent traffic) must never clear the waiting card from under the user.
+            let approvalPending = sessions[i].status == .waitingApproval
+                && pendingApprovals.contains { $0.sessionId == msg.sessionId }
+            if let newStatus, !approvalPending || newStatus == .waitingApproval {
+                sessions[i].status = newStatus
+            }
+            if let tool = msg.toolName { sessions[i].lastTool = tool }
             sessions[i].lastActivity = .now
             isNew = false
         } else {
             index[msg.sessionId] = sessions.count
-            sessions.append(Session(id: msg.sessionId, source: msg.source,
-                                    cwd: msg.cwd, status: newStatus ?? .idle))
+            var session = Session(id: msg.sessionId, source: msg.source,
+                                  cwd: msg.cwd, status: newStatus ?? .idle,
+                                  parentId: msg.parentId, agentType: msg.agentType)
+            session.lastTool = msg.toolName
+            sessions.append(session)
             isNew = true
         }
         prune()
         return isNew
     }
 
-    /// The session ended (SessionEnd hook) — drop it and any pending attention for it.
+    /// The session ended (SessionEnd hook) — drop it, its subagents, and any pending attention.
     func endSession(_ id: String) {
-        sessions.removeAll { $0.id == id }
+        sessions.removeAll { $0.id == id || $0.parentId == id }
         pendingApprovals.removeAll { $0.sessionId == id }
         pendingNotices.removeAll { $0.sessionId == id }
         reindex()
@@ -64,8 +74,8 @@ final class SessionStore: ObservableObject {
     }
 
     /// Show a pending permission request and mark the session as waiting. `onDecide` is
-    /// called when the user (or a timeout) resolves it.
-    func presentApproval(_ msg: HookMessage, onDecide: @escaping (Decision) -> Void) {
+    /// called when the user (or a timeout) resolves it; nil = hand back to Claude's UI.
+    func presentApproval(_ msg: HookMessage, onDecide: @escaping (Decision?) -> Void) {
         apply(msg)   // creates/updates the session, sets .waitingApproval
         let req = ApprovalRequest(message: msg) { [weak self] decision in
             onDecide(decision)
@@ -86,12 +96,13 @@ final class SessionStore: ObservableObject {
 
     /// Show a non-blocking "needs input" notice for a non-binary prompt (a choice, not a
     /// grant). Auto-dismisses after a few seconds — the user answers in Claude's own UI.
-    func presentNeedsInput(_ msg: HookMessage) {
+    /// `quiet` skips the sound (the user is already looking at the session's window).
+    func presentNeedsInput(_ msg: HookMessage, quiet: Bool = false) {
         apply(msg)
         guard !pendingNotices.contains(where: { $0.sessionId == msg.sessionId }) else { return }
         let notice = AttentionNotice(message: msg)
         pendingNotices.append(notice)
-        ApprovalSound.play()
+        if !quiet { ApprovalSound.play() }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(8))
             pendingNotices.removeAll { $0.id == notice.id }
@@ -110,8 +121,11 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// Sessions worth showing. (Liveness-based pruning is a Phase 2 concern.)
-    var active: [Session] { sessions }
+    /// Sessions worth showing, ordered so each subagent renders directly under its parent.
+    var active: [Session] { Session.nested(sessions) }
+
+    /// Headline count for the pill: real sessions only, subagents don't inflate it.
+    var topLevelCount: Int { sessions.filter { $0.parentId == nil }.count }
 
     var worstStatus: SessionStatus? {
         active.max { $0.status.severity < $1.status.severity }?.status

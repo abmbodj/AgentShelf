@@ -75,6 +75,41 @@ private let realisticConfig = """
     #expect(commands == ["my-foreign-hook"])
 }
 
+@Test func permissionRequestEntryCarriesLongTimeout() throws {
+    let url = tempSettings("{}")
+    try ClaudeInstaller(settingsURL: url, hookCommand: hookCmd).install()
+
+    let root = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+    let hooks = root["hooks"] as! [String: Any]
+    let perm = (hooks["PermissionRequest"] as! [[String: Any]])
+        .flatMap { $0["hooks"] as! [[String: Any]] }
+    // Without this Claude Code kills the hook at its default timeout and fails open.
+    #expect(perm.first?["timeout"] as? Int == AgentShelf.hookEntryTimeout)
+    // Other events stay timeout-free (they're fire-and-forget).
+    let start = (hooks["SessionStart"] as! [[String: Any]]).flatMap { $0["hooks"] as! [[String: Any]] }
+    #expect(start.first?["timeout"] == nil)
+}
+
+@Test func reinstallUpgradesStaleEntries() throws {
+    // Simulate an old install: our marker with an outdated path and no timeout.
+    let url = tempSettings("""
+    { "hooks": { "PermissionRequest": [ { "matcher": "*", "hooks": [
+        { "type": "command", "command": "/old/build/dir/agentshelf-hook claudeCode" }
+    ] } ] } }
+    """)
+    let inst = ClaudeInstaller(settingsURL: url, hookCommand: hookCmd)
+    #expect(try inst.isInstalled())   // old path still detected via the marker
+    try inst.install()
+
+    let root = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+    let perm = ((root["hooks"] as! [String: Any])["PermissionRequest"] as! [[String: Any]])
+        .flatMap { $0["hooks"] as! [[String: Any]] }
+    // Sanitize-then-append: exactly one entry, current command, timeout added.
+    #expect(perm.count == 1)
+    #expect(perm.first?["command"] as? String == hookCmd)
+    #expect(perm.first?["timeout"] as? Int == AgentShelf.hookEntryTimeout)
+}
+
 @Test func refusesUnparseableConfig() throws {
     let url = tempSettings("{ this is not json")
     let before = try Data(contentsOf: url)
