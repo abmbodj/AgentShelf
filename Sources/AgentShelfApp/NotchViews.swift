@@ -50,7 +50,7 @@ struct SessionListView: View {
             }
 
             if store.active.isEmpty {
-                Text("No active sessions").font(.callout).foregroundStyle(.white.opacity(0.5))
+                Text("Watching Claude Code…").font(.callout).foregroundStyle(.white.opacity(0.5))
             } else {
                 ForEach(store.active) { session in
                     SessionRow(session: session)

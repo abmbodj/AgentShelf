@@ -33,8 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 // Status-only events.
                 Task { @MainActor in
-                    store.apply(msg)
-                    controller.refresh()
+                    let isNew = store.apply(msg)
+                    if isNew { controller.flash() } else { controller.refresh() }
                     if ProcessInfo.processInfo.environment["AGENTSHELF_DEBUG"] != nil {
                         NSLog("AgentShelf: \(msg.event) \(msg.source.displayName) sessions=\(store.active.count) worst=\(store.worstStatus?.label ?? "-")")
                     }

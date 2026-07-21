@@ -18,15 +18,19 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    func apply(_ msg: HookMessage) {
+    /// Returns true if this created a new session (so the UI can flash to announce it).
+    @discardableResult
+    func apply(_ msg: HookMessage) -> Bool {
         let newStatus = Self.status(for: msg.event)
         if let i = index[msg.sessionId] {
             if let newStatus { sessions[i].status = newStatus }
             sessions[i].lastActivity = .now
+            return false
         } else {
             index[msg.sessionId] = sessions.count
             sessions.append(Session(id: msg.sessionId, source: msg.source,
                                     cwd: msg.cwd, status: newStatus ?? .idle))
+            return true
         }
     }
 

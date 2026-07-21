@@ -11,8 +11,10 @@ final class NotchController: ObservableObject {
     let store: SessionStore
     @Published private(set) var pinned = false
     private var hovering = false
+    private var flashing = false
     private var notch: AppNotch?
     private var transition: Task<Void, Never>?
+    private var flashTask: Task<Void, Never>?
 
     init(store: SessionStore) { self.store = store }
 
@@ -24,7 +26,7 @@ final class NotchController: ObservableObject {
         } compactTrailing: {
             PillTrailingView(store: self.store)
         }
-        refresh()
+        flash()   // proof-of-life: briefly open the panel on launch
     }
 
     func setHovering(_ h: Bool) { hovering = h; refresh() }
@@ -33,16 +35,30 @@ final class NotchController: ObservableObject {
     /// Focus the editor window for a session's folder.
     func jump(_ session: Session) { JumpService.focus(cwd: session.cwd) }
 
-    /// Reconcile the notch after any state change (sessions, hover, pin).
+    /// Briefly expand to announce activity (launch / new session), then settle back to
+    /// the pill (unless hovered/pinned/approval keeps it open).
+    func flash() {
+        flashing = true
+        refresh()
+        flashTask?.cancel()
+        flashTask = Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            flashing = false
+            refresh()
+        }
+    }
+
+    /// Reconcile the notch after any state change (sessions, hover, pin, flash).
     func refresh() {
         guard let notch else { return }
         let hasSessions = !store.active.isEmpty
-        let wantExpand = pinned || hovering || store.worstStatus == .waitingApproval
+        let wantExpand = pinned || hovering || flashing || store.worstStatus == .waitingApproval
         transition?.cancel()
         transition = Task {
-            if !hasSessions && !pinned { await notch.hide() }
-            else if wantExpand { await notch.expand() }
-            else { await notch.compact() }
+            if wantExpand { await notch.expand() }
+            else if hasSessions { await notch.compact() }
+            else { await notch.hide() }
         }
     }
 }
