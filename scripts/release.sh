@@ -1,8 +1,11 @@
 #!/bin/bash
-# Build, sign, notarize, and publish a signed AgentShelf release DMG.
+# Build and publish an AgentShelf release DMG. Signs + notarizes automatically once a
+# "Developer ID Application" cert exists in the keychain; until then, ships unsigned
+# (downloaders need to right-click -> Open on first launch).
 #   ./scripts/release.sh 0.2.0
 #
-# One-time setup (once per machine), so notarytool can authenticate without a password prompt:
+# One-time setup for signed releases (once per machine), so notarytool can authenticate
+# without a password prompt:
 #   xcrun notarytool store-credentials AgentShelf --apple-id you@example.com --team-id TEAMID --password app-specific-password
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,18 +21,18 @@ PLIST="Resources/AgentShelf-Info.plist"
 
 APP="AgentShelf.app"
 SIGN_ID=$(security find-identity -v -p codesigning | grep -m1 "Developer ID Application" | sed -E 's/.*"(.+)".*/\1/')
-if [ -z "$SIGN_ID" ]; then
-  echo "No 'Developer ID Application' identity found in keychain." >&2
-  exit 1
-fi
 
-# Sign every loose executable in the bundle before signing the bundle itself —
-# notarization rejects unsigned nested code.
-for bin in agentshelf-hook agentshelf-setup AgentShelf; do
-  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP/Contents/MacOS/$bin"
-done
-codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
-codesign --verify --deep --strict "$APP"
+if [ -n "$SIGN_ID" ]; then
+  # Sign every loose executable in the bundle before signing the bundle itself —
+  # notarization rejects unsigned nested code.
+  for bin in agentshelf-hook agentshelf-setup AgentShelf; do
+    codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP/Contents/MacOS/$bin"
+  done
+  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
+  codesign --verify --deep --strict "$APP"
+else
+  echo "warning: no 'Developer ID Application' identity in keychain — shipping unsigned, unnotarized" >&2
+fi
 
 DMG="AgentShelf-$VERSION.dmg"
 rm -f "$DMG"
@@ -40,12 +43,15 @@ ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "AgentShelf" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 rm -rf "$(dirname "$STAGE")"
 
-xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
-xcrun stapler staple "$DMG"
+if [ -n "$SIGN_ID" ]; then
+  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$DMG"
+fi
 
 if command -v gh >/dev/null 2>&1; then
   gh release create "v$VERSION" "$DMG" --title "v$VERSION" --generate-notes
   echo "Published v$VERSION"
+  [ -z "$SIGN_ID" ] && echo "reminder: this build is unsigned — mention right-click -> Open in the release notes"
 else
   echo "gh CLI not found — DMG ready at $DMG. Publish manually: gh release create v$VERSION $DMG"
 fi
