@@ -56,46 +56,10 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
     var body: some View {
         notchContent()
             .background {
-                // AgentShelf patch: see-through Liquid Glass in the notch outline, instead of the
-                // upstream opaque black fill. `.clear` glass keeps the panel genuinely translucent
-                // (content behind shows through) rather than a frosted gray. Over it sits a black
-                // top overlay with a SOLID (non-fading) band the full height of the notch strip,
-                // then a fade to clear below the notch line. This makes the compact pill read fully
-                // black so it fuses with the physical camera notch, and gives the expanded panel the
-                // reference's dark-top / see-through-bottom look. Both layers are clipped to
-                // NotchShape by the downstream `.mask`.
-                // AgentShelf patch: see-through Liquid Glass in the notch outline, instead of the
-                // upstream opaque black fill. `.clear` glass keeps the panel genuinely translucent
-                // (content behind shows through) rather than a frosted gray. Over it sits a black
-                // top overlay with a SOLID (non-fading) band the full height of the notch strip,
-                // then a fade to clear below the notch line. This makes the compact pill read fully
-                // black so it fuses with the physical camera notch, and gives the expanded panel the
-                // reference's dark-top / see-through-bottom look. Both layers are clipped to
-                // NotchShape by the downstream `.mask`.
-                ZStack(alignment: .top) {
-                    Color.clear
-                        .glassEffect(
-                            .clear,
-                            in: NotchShape(
-                                topCornerRadius: topCornerRadius,
-                                bottomCornerRadius: bottomCornerRadius
-                            )
-                        )
-                    let solid = dynamicNotch.notchSize.height + 6  // solid black through the notch strip
-                    let fade: CGFloat = 55                         // then fade to clear below it
-                    let total = solid + fade
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: solid / total),
-                            .init(color: .black.opacity(0), location: 1)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: total)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                }
+                // AgentShelf: fully opaque black fill (reverted from the see-through glass patch).
+                // Translucent glass could never match the pure-black hardware notch; a solid black
+                // shelf reads as a seamless extension of it. Clipped to NotchShape by `.mask` below.
+                Color.black
             }
             .mask {
                 NotchShape(
@@ -111,9 +75,9 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
             }
             .offset(x: xOffset)
             .animation(.smooth, value: [compactLeadingWidth, compactTrailingWidth])
-            // AgentShelf patch: the notch panel is a non-activating panel, so SwiftUI renders it as
-            // inactive (dimmed Liquid Glass) until it's clicked and becomes key. Force the active
-            // control state so the full glass renders on hover/auto-expand without a click.
+            // AgentShelf patch: the notch panel never becomes key, so SwiftUI would render its
+            // content as inactive (dimmed secondary text / controls). Force the active control
+            // state so text, status dots, and buttons stay fully vibrant without a click.
             .environment(\.controlActiveState, .active)
     }
 

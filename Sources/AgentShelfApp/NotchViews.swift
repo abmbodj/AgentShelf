@@ -102,16 +102,39 @@ struct ApprovalCard: View {
             if !request.diff.isEmpty {
                 DiffView(lines: request.diff)
             }
-            HStack {
-                Button("Deny") { request.decide(.deny) }.buttonStyle(.glass)
-                Spacer()
+            HStack(spacing: 8) {
+                Button("Deny") { request.decide(.deny) }
+                    .buttonStyle(ApprovalButtonStyle(prominent: false))
                 // "Always" = allow + session-scoped rule for this tool (nothing on disk).
-                Button("Always") { request.decide(.allowAlways) }.buttonStyle(.glass)
-                Button("Allow") { request.decide(.allow) }.buttonStyle(.glassProminent)
+                Button("Always") { request.decide(.allowAlways) }
+                    .buttonStyle(ApprovalButtonStyle(prominent: false))
+                Button("Allow") { request.decide(.allow) }
+                    .buttonStyle(ApprovalButtonStyle(prominent: true))
             }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: DesignTokens.cardCornerRadius, style: .continuous).fill(DesignTokens.elevatedSurface))
+    }
+}
+
+/// Filled-pill style for the approval row: three equal-width buttons, dark secondary
+/// (Deny/Always) vs. near-white primary (Allow). Not `.glass` — the reference wants solid
+/// fills with clear primary/secondary contrast.
+// ponytail: colors inline, not DesignTokens — used only here; tune against the real notch.
+private struct ApprovalButtonStyle: ButtonStyle {
+    var prominent: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(prominent ? Color(white: 0.10) : Color(white: 0.90))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(prominent ? Color(white: 0.95) : Color(white: 0.28))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 

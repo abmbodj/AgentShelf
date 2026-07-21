@@ -27,12 +27,9 @@ struct NotchlessView<Expanded, CompactLeading, CompactTrailing>: View where Expa
     var body: some View {
         notchContent()
             .background {
-                // AgentShelf patch: see-through Liquid Glass instead of the upstream popover
-                // material, matching the notch style. `.clear` keeps it genuinely translucent; the
-                // OS draws the glass edge, so the manual stroke border is dropped. (No black top
-                // vignette here — floating mode has no physical notch to merge with.)
-                Color.clear
-                    .glassEffect(.clear, in: .rect(cornerRadius: cornerRadius, style: .continuous))
+                // AgentShelf: fully opaque black fill (reverted from the see-through glass patch),
+                // matching the notch style. Clipped by `.clipShape` below.
+                Color.black
             }
             .clipShape(.rect(cornerRadius: cornerRadius))
             .padding(20)
@@ -42,8 +39,8 @@ struct NotchlessView<Expanded, CompactLeading, CompactTrailing>: View where Expa
             }
             .offset(y: dynamicNotch.state == .expanded ? dynamicNotch.notchSize.height : -windowHeight)
             .onHover(perform: dynamicNotch.updateHoverState)
-            // AgentShelf patch: force active control state so Liquid Glass renders fully even when
-            // the non-activating panel isn't key (otherwise it looks dimmed until clicked).
+            // AgentShelf patch: force active control state so content stays fully vibrant even
+            // though the non-activating panel is never key (otherwise text looks dimmed).
             .environment(\.controlActiveState, .active)
     }
 
