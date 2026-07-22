@@ -33,6 +33,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         item.menu = menu
         statusItem = item
         Task { await checkForUpdate() }
+        enableLaunchAtLoginByDefaultOnce()
+    }
+
+    /// First run only: opt into Launch at Login so most people never have to find the toggle.
+    /// Gated behind a UserDefaults flag so we never override a later, deliberate "off" choice.
+    private func enableLaunchAtLoginByDefaultOnce() {
+        let key = "agentshelf.didSetDefaultLaunchAtLogin"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        try? SMAppService.mainApp.register()
     }
 
     /// Once per launch: if GitHub has a newer release than this build, surface a menu item

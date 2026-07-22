@@ -20,18 +20,14 @@ PLIST="Resources/AgentShelf-Info.plist"
 ./scripts/build-app.sh release
 
 APP="AgentShelf.app"
+# build-app.sh already signed with the best available identity (Developer ID Application,
+# else the free Apple Development cert, else ad-hoc). Only a Developer ID signature is
+# eligible for notarization — everything else ships as-is, unnotarized.
 SIGN_ID=$(security find-identity -v -p codesigning | grep -m1 "Developer ID Application" | sed -E 's/.*"(.+)".*/\1/' || true)
-
 if [ -n "$SIGN_ID" ]; then
-  # Sign every loose executable in the bundle before signing the bundle itself —
-  # notarization rejects unsigned nested code.
-  for bin in agentshelf-hook agentshelf-setup AgentShelf; do
-    codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP/Contents/MacOS/$bin"
-  done
-  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
   codesign --verify --deep --strict "$APP"
 else
-  echo "warning: no 'Developer ID Application' identity in keychain — shipping unsigned, unnotarized" >&2
+  echo "warning: no 'Developer ID Application' identity in keychain — shipping unnotarized" >&2
 fi
 
 DMG="AgentShelf-$VERSION.dmg"
