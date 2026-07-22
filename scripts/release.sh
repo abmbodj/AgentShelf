@@ -1,6 +1,7 @@
 #!/bin/bash
-# Build and publish an AgentShelf release DMG. Signs + notarizes automatically once a
-# "Developer ID Application" cert exists in the keychain; until then, ships unsigned
+# Build and publish an AgentShelf release DMG. Notarizes automatically once a
+# "Developer ID Application" cert exists in the keychain; until then, ships signed with
+# whatever identity build-app.sh found (e.g. a free Apple Development cert) but unnotarized
 # (downloaders need to right-click -> Open on first launch).
 #   ./scripts/release.sh 0.2.0
 #
@@ -27,7 +28,7 @@ SIGN_ID=$(security find-identity -v -p codesigning | grep -m1 "Developer ID Appl
 if [ -n "$SIGN_ID" ]; then
   codesign --verify --deep --strict "$APP"
 else
-  echo "warning: no 'Developer ID Application' identity in keychain — shipping unnotarized" >&2
+  echo "warning: no 'Developer ID Application' identity in keychain — shipping unnotarized (Gatekeeper will still block first launch)" >&2
 fi
 
 DMG="AgentShelf-$VERSION.dmg"
@@ -47,7 +48,7 @@ fi
 if command -v gh >/dev/null 2>&1; then
   gh release create "v$VERSION" "$DMG" --title "v$VERSION" --generate-notes
   echo "Published v$VERSION"
-  [ -z "$SIGN_ID" ] && echo "reminder: this build is unsigned — mention right-click -> Open in the release notes"
+  [ -z "$SIGN_ID" ] && echo "reminder: this build isn't notarized — mention right-click -> Open in the release notes"
 else
   echo "gh CLI not found — DMG ready at $DMG. Publish manually: gh release create v$VERSION $DMG"
 fi

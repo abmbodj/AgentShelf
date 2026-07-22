@@ -10,8 +10,8 @@ activity — in the notch, so you don't have to keep switching back to the termi
 3. Launch AgentShelf from Spotlight (⌘Space → "AgentShelf") like any other app.
 4. From the menu bar icon, install the Claude Code hooks so sessions actually show up.
 
-Signed, notarized releases open with no Gatekeeper warning. If a release is unsigned (no
-Developer ID cert configured yet), macOS will block it on first launch — right-click
+Notarized releases open with no Gatekeeper warning. If a release isn't notarized yet (no
+Developer ID cert configured), macOS will block it on first launch — right-click
 **AgentShelf.app** → **Open** → **Open** to run it anyway.
 
 AgentShelf itself checks for new releases on launch and shows an "Update available" item in
@@ -39,12 +39,15 @@ swift test                # run the test suite
 ./scripts/release.sh 0.2.0
 ```
 
-This stamps the version into `Info.plist`, builds a release binary, builds the DMG, and
-publishes a GitHub Release with the DMG attached (via `gh`, if installed).
+This stamps the version into `Info.plist`, builds and signs a release binary (with the best
+identity available — Developer ID Application, else a free Apple Development cert, else
+ad-hoc), builds the DMG, and publishes a GitHub Release with the DMG attached (via `gh`, if
+installed).
 
-If a "Developer ID Application" certificate is in your keychain, it also code-signs,
-notarizes, and staples the build automatically — otherwise it ships unsigned. To enable
-signing, one-time per machine:
+If a "Developer ID Application" certificate is in your keychain, it also notarizes and
+staples the build automatically — otherwise it's signed but unnotarized, and Gatekeeper will
+block first launch until the user right-clicks → Open. To enable notarization, one-time per
+machine:
 
 ```
 xcrun notarytool store-credentials AgentShelf \
