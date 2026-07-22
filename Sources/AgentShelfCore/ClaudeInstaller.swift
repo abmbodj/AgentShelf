@@ -57,7 +57,7 @@ public struct ClaudeInstaller {
         ("PreToolUse", true),
         ("PermissionRequest", true),
         ("Stop", false),
-        ("SubagentStop", false), // mark a finished subagent idle so it prunes out
+        ("SubagentStop", false), // remove the subagent's row immediately, it's terminal
         ("SessionEnd", false),   // remove the session from the shelf when it truly ends
     ]
 

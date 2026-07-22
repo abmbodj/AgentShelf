@@ -46,14 +46,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
                 case .none:
                     Task { @MainActor in
-                        if msg.event == "SessionEnd" {
+                        if msg.event == "SessionEnd" || msg.event == "SubagentStop" {
+                            // A subagent is terminal (never resumes) — drop it immediately
+                            // rather than leaving it as an idle row for prune()'s 15 minutes.
                             store.endSession(msg.sessionId)
                         } else {
                             let result = store.apply(msg)
                             if result.didCompleteTurn {
                                 controller.announceDone()
-                            } else if result.isNew, !NotchController.jumpTargetIsFrontmost {
+                            } else if result.isNew, msg.parentId == nil, !NotchController.jumpTargetIsFrontmost {
                                 // New-session flash is noise if you're already in the editor.
+                                // Subagents never trigger it — a burst of them would otherwise
+                                // keep re-expanding the panel the whole time they're spawning.
                                 controller.flash()
                             }
                         }

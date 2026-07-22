@@ -68,9 +68,11 @@ final class SessionStore: ObservableObject {
     }
 
     /// Map a hook event to the status it implies (nil = leave status unchanged).
+    /// `SubagentStop` never reaches here — it's routed straight to `endSession` (a subagent
+    /// is terminal, so there's no idle state worth representing for it).
     static func status(for event: String) -> SessionStatus? {
         switch event {
-        case "SessionStart", "Stop", "SubagentStop": return .idle
+        case "SessionStart", "Stop": return .idle
         case "UserPromptSubmit", "PreToolUse", "PostToolUse": return .running
         case "PermissionRequest": return .waitingApproval
         default: return nil
@@ -80,7 +82,7 @@ final class SessionStore: ObservableObject {
     /// Outcome of applying a hook message — drives new-session flash and Done announce.
     struct ApplyResult {
         var isNew: Bool
-        /// Top-level session transitioned running → idle via `Stop` (not SubagentStop).
+        /// Top-level session transitioned running → idle via `Stop`.
         var didCompleteTurn: Bool
     }
 
