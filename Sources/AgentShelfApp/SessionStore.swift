@@ -107,6 +107,7 @@ final class SessionStore: ObservableObject {
                 sessions[i].lastToolSummary = msg.toolSummary
             }
             if let terminal = msg.terminal { sessions[i].terminal = terminal }
+            if let tty = msg.tty { sessions[i].tty = tty }
             if let prompt = msg.userPrompt { sessions[i].lastUserPrompt = prompt }
             sessions[i].lastActivity = .now
             isNew = false
@@ -119,6 +120,7 @@ final class SessionStore: ObservableObject {
             session.lastTool = msg.toolName
             session.lastToolSummary = msg.toolSummary
             session.terminal = msg.terminal
+            session.tty = msg.tty
             session.lastUserPrompt = msg.userPrompt
             sessions.append(session)
             isNew = true

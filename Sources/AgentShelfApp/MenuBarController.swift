@@ -9,6 +9,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let installer: ClaudeInstaller
     private let statusLineInstaller = StatusLineInstaller()
+    private let cursorSettingsInstaller = CursorSettingsInstaller()
     private var availableUpdateURL: URL?
 
     override init() {
@@ -99,6 +100,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         add(menu, statusLineInstalled ? "Uninstall Usage Statusline" : "Install Usage Statusline",
             #selector(toggleStatusLine))
 
+        // Lets "Open in Claude" select the exact terminal tab a session is running in
+        // (see CursorTabFocuser) instead of just activating Cursor. No-op if Cursor isn't
+        // installed / the user doesn't run Claude Code inside Cursor's own terminal.
+        let cursorTabsInstalled = (try? cursorSettingsInstaller.isInstalled()) ?? false
+        add(menu, cursorTabsInstalled ? "Uninstall Cursor Tab Targeting" : "Install Cursor Tab Targeting",
+            #selector(toggleCursorTabTargeting))
+
         add(menu, "Check Hooks…", #selector(checkHooks))
 
         let launch = add(menu, "Launch at Login", #selector(toggleLaunchAtLogin))
@@ -155,6 +163,18 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         } catch {
             let alert = NSAlert()
             alert.messageText = "Statusline update failed"
+            alert.informativeText = "\(error)"
+            alert.runModal()
+        }
+    }
+
+    @objc private func toggleCursorTabTargeting() {
+        do {
+            if (try? cursorSettingsInstaller.isInstalled()) == true { try cursorSettingsInstaller.uninstall() }
+            else { try cursorSettingsInstaller.install() }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Cursor settings update failed"
             alert.informativeText = "\(error)"
             alert.runModal()
         }

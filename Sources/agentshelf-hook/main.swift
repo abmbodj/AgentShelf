@@ -38,6 +38,7 @@ let agentType = field(obj, "agent_type")
 let cwd = field(obj, "cwd") ?? FileManager.default.currentDirectoryPath
 let toolName = field(obj, "tool_name")
 let terminal = ProcessInfo.processInfo.environment["TERM_PROGRAM"]
+let tty = ControllingTTY.path()
 let userPrompt = event == "UserPromptSubmit" ? field(obj, "prompt") : nil
 
 var toolSummary: String?
@@ -102,7 +103,8 @@ let kind = PermissionClassifier.kind(event: event, toolName: toolName)
 let msg = HookMessage(event: event, source: source, sessionId: sessionId, cwd: cwd,
                       toolName: toolName, toolSummary: toolSummary, permissionKind: kind,
                       parentId: parentId, agentType: agentType, questions: questions,
-                      diffOld: diffOld, diffNew: diffNew, userPrompt: userPrompt, terminal: terminal)
+                      diffOld: diffOld, diffNew: diffNew, userPrompt: userPrompt, terminal: terminal,
+                      tty: tty)
 
 // Block ONLY for a binary permission. Non-binary prompts (a choice, not a grant) are sent
 // fire-and-forget so Claude's own multi-option prompt drives — the notch just notifies.

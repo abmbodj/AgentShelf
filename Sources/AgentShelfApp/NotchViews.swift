@@ -72,11 +72,17 @@ struct SessionListView: View {
     @ViewBuilder
     private var attentionCard: some View {
         if let approval = store.pendingApprovals.first {
-            ApprovalCard(request: approval) { controller.jump(cwd: approval.cwd) }
+            ApprovalCard(request: approval) {
+                controller.jump(cwd: approval.cwd, tty: approval.tty, marker: approval.sessionId)
+            }
         } else if let question = store.pendingQuestions.first {
-            QuestionCard(request: question) { controller.jump(cwd: question.cwd) }
+            QuestionCard(request: question) {
+                controller.jump(cwd: question.cwd, tty: question.tty, marker: question.sessionId)
+            }
         } else if let notice = store.pendingNotices.first {
-            NeedsInputCard(notice: notice) { controller.jump(cwd: notice.cwd) }
+            NeedsInputCard(notice: notice) {
+                controller.jump(cwd: notice.cwd, tty: notice.tty, marker: notice.sessionId)
+            }
         }
     }
 

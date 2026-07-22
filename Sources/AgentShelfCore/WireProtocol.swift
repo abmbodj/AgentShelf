@@ -45,13 +45,14 @@ public struct HookMessage: Codable, Sendable {
     public var diffNew: String?       // Edit/MultiEdit new_string, or Write's content
     public var userPrompt: String?    // UserPromptSubmit's prompt text
     public var terminal: String?      // TERM_PROGRAM from the hook's environment
+    public var tty: String?           // controlling terminal device path (see ControllingTTY)
 
     public init(event: String, source: AgentSource, sessionId: String, cwd: String,
                 toolName: String? = nil, toolSummary: String? = nil,
                 permissionKind: PermissionKind = .none,
                 parentId: String? = nil, agentType: String? = nil,
                 questions: [Question]? = nil, diffOld: String? = nil, diffNew: String? = nil,
-                userPrompt: String? = nil, terminal: String? = nil) {
+                userPrompt: String? = nil, terminal: String? = nil, tty: String? = nil) {
         self.event = event
         self.source = source
         self.sessionId = sessionId
@@ -66,6 +67,7 @@ public struct HookMessage: Codable, Sendable {
         self.diffNew = diffNew
         self.userPrompt = userPrompt
         self.terminal = terminal
+        self.tty = tty
     }
 
     /// The hook blocks for a decision only on a binary permission.

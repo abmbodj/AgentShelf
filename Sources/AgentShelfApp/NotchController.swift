@@ -16,10 +16,17 @@ final class NotchController: ObservableObject {
     @Published private(set) var showingDone = false
     private var hovering = false
     private var flashing = false
+    /// True right after `jump(cwd:)`, until the mouse actually leaves the notch (or a short
+    /// backstop timeout fires). The user's cursor is still physically over the panel they just
+    /// clicked in, so DynamicNotchKit's own hover tracking reports one more "still hovering"
+    /// callback a beat later — without this, that stale event re-opens the panel we just tried
+    /// to close, making the jump look like it did nothing but flash the pill.
+    private var suppressHoverExpand = false
     private var notch: AppNotch?
     private var transition: Task<Void, Never>?
     private var flashTask: Task<Void, Never>?
     private var doneTask: Task<Void, Never>?
+    private var suppressHoverTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
     private var hoverCancellable: AnyCancellable?
 
@@ -53,7 +60,15 @@ final class NotchController: ObservableObject {
         flash()   // proof-of-life: briefly open the panel on launch
     }
 
-    func setHovering(_ h: Bool) { hovering = h; refresh() }
+    func setHovering(_ h: Bool) {
+        if suppressHoverExpand {
+            guard !h else { return }   // stale "still hovering" beat right after a jump — ignore it
+            suppressHoverExpand = false   // mouse actually left; a fresh hover-in is legitimate again
+            suppressHoverTask?.cancel()
+        }
+        hovering = h
+        refresh()
+    }
     func togglePin() { pinned.toggle(); refresh() }
 
     /// True when the user is already looking at the app we'd jump to — routine
@@ -63,16 +78,38 @@ final class NotchController: ObservableObject {
         return ["Cursor", "Visual Studio Code", "Code"].contains(name)
     }
 
-    /// Focus the editor window for a session's folder.
-    func jump(_ session: Session) { jump(cwd: session.cwd) }
-    func jump(cwd: String) {
-        JumpService.focus(cwd: cwd)
+    /// Focus the editor window for a session's folder — or, if it's a Claude Code session
+    /// running in one of Cursor's own integrated-terminal tabs, the exact tab.
+    func jump(_ session: Session) { jump(cwd: session.cwd, tty: session.tty, marker: session.id) }
+    func jump(cwd: String, tty: String? = nil, marker: String? = nil) {
+        // Off the main actor: CursorTabFocuser's Accessibility calls and JumpService's Process
+        // launch can both block for seconds — or indefinitely on a one-time "Allow AgentShelf to
+        // control your computer" permission prompt — and that must never freeze the notch's UI
+        // (same precedent as QuestionRequest.choose's terminal injection).
+        Task.detached {
+            if let tty, let marker, CursorTabFocuser.focus(tty: tty, marker: marker) { return }
+            JumpService.focus(cwd: cwd)
+        }
         // You're leaving for the session — collapse the shelf so it can't cover whatever
         // opens (e.g. a first-run macOS permission dialog appears top-center too).
         pinned = false
         hovering = false
         cancelDone()
-        Task { await notch?.hide() }
+        // The click that triggered this happened with the mouse over the notch, so a stale
+        // "still hovering" callback is coming — ignore hover-driven expansion until the mouse
+        // actually leaves. The 1.5s backstop guards against ever getting stuck suppressed if a
+        // leave event never arrives for some reason.
+        suppressHoverExpand = true
+        suppressHoverTask?.cancel()
+        suppressHoverTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            suppressHoverExpand = false
+        }
+        // Route through the same reconciliation path refresh() everywhere else uses, rather than
+        // an untracked hide() task, so this can't race the refresh() the store's own change
+        // (the request being dismissed) is about to schedule.
+        refresh()
     }
 
     /// Briefly expand to announce activity (launch / new session), then settle back to

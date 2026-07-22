@@ -74,6 +74,7 @@ public struct Session: Codable, Identifiable, Sendable {
     public var lastTool: String?     // most recent tool name, shown as the row's activity hint
     public var lastToolSummary: String?  // file path / command for lastTool, for activityLabel
     public var terminal: String?     // TERM_PROGRAM the session's hook last reported
+    public var tty: String?          // controlling terminal device path the hook last reported
     // Prompt text stays off disk: omitted from CodingKeys below, defaults to nil on restore.
     public var lastUserPrompt: String?
 
@@ -92,7 +93,7 @@ public struct Session: Codable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, source, cwd, status, startedAt, lastActivity, parentId, agentType
-        case lastTool, lastToolSummary, terminal
+        case lastTool, lastToolSummary, terminal, tty
         // lastUserPrompt intentionally omitted.
     }
 
