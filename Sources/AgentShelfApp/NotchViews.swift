@@ -39,47 +39,19 @@ struct PillTrailingView: View {
     }
 }
 
-/// Expanded panel: the live session list. Hover peeks, click pins (driven by controller).
+/// Expanded panel: attention-only when a prompt is pending; otherwise the live session list.
+/// Hover peeks, click pins (driven by controller).
 struct SessionListView: View {
     @ObservedObject var store: SessionStore
     unowned let controller: NotchController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Slim, dim top strip: usage on the left, pin on the right, no wordmark. The whole
-            // strip is the pin affordance. Vibrant .secondary reads correctly over glass.
-            HStack(spacing: 6) {
-                if let usage = UsageCache.text {
-                    Text(usage)
-                        .font(.caption2).monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: controller.pinned ? "pin.fill" : "pin")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { controller.togglePin() }
-
-            // Attention items drop in above the list: a binary Allow/Deny approval, an
-            // answerable question, or a read-only "needs input" notice (a choice too rich to
-            // answer inline).
-            if let approval = store.pendingApprovals.first {
-                ApprovalCard(request: approval) { controller.jump(cwd: approval.cwd) }
-            } else if let question = store.pendingQuestions.first {
-                QuestionCard(request: question) { controller.jump(cwd: question.cwd) }
-            } else if let notice = store.pendingNotices.first {
-                NeedsInputCard(notice: notice) { controller.jump(cwd: notice.cwd) }
-            }
-
-            if store.active.isEmpty {
-                Text("Watching Claude Code…").font(.callout).foregroundStyle(.secondary)
+            if store.hasAttention {
+                attentionCard
             } else {
-                ForEach(store.active) { session in
-                    SessionRow(session: session)
-                        .contentShape(Rectangle())
-                        .onTapGesture { controller.jump(session) }
-                }
+                pinStrip
+                sessionList
             }
         }
         .padding(.horizontal, 16)
@@ -88,6 +60,49 @@ struct SessionListView: View {
         .frame(width: DesignTokens.panelWidth, alignment: .leading)
         // Glass is rendered by the (patched) DynamicNotchKit; the window is forced dark
         // (NotchController) so glass + vibrant text stay legible over any desktop.
+    }
+
+    /// Binary approval, answerable question, or read-only "needs input" notice — sole content
+    /// while attention is pending (no pin strip / session rows).
+    @ViewBuilder
+    private var attentionCard: some View {
+        if let approval = store.pendingApprovals.first {
+            ApprovalCard(request: approval) { controller.jump(cwd: approval.cwd) }
+        } else if let question = store.pendingQuestions.first {
+            QuestionCard(request: question) { controller.jump(cwd: question.cwd) }
+        } else if let notice = store.pendingNotices.first {
+            NeedsInputCard(notice: notice) { controller.jump(cwd: notice.cwd) }
+        }
+    }
+
+    /// Slim, dim top strip: usage on the left, pin on the right, no wordmark. The whole
+    /// strip is the pin affordance. Vibrant .secondary reads correctly over glass.
+    private var pinStrip: some View {
+        HStack(spacing: 6) {
+            if let usage = UsageCache.text {
+                Text(usage)
+                    .font(.caption2).monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: controller.pinned ? "pin.fill" : "pin")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { controller.togglePin() }
+    }
+
+    @ViewBuilder
+    private var sessionList: some View {
+        if store.active.isEmpty {
+            Text("Watching Claude Code…").font(.callout).foregroundStyle(.secondary)
+        } else {
+            ForEach(store.active) { session in
+                SessionRow(session: session)
+                    .contentShape(Rectangle())
+                    .onTapGesture { controller.jump(session) }
+            }
+        }
     }
 }
 

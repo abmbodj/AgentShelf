@@ -216,6 +216,11 @@ final class SessionStore: ObservableObject {
     /// Headline count for the pill: real sessions only, subagents don't inflate it.
     var topLevelCount: Int { sessions.filter { $0.parentId == nil }.count }
 
+    /// True while any approval, question, or notice is waiting — drives attention-only notch.
+    var hasAttention: Bool {
+        !pendingApprovals.isEmpty || !pendingQuestions.isEmpty || !pendingNotices.isEmpty
+    }
+
     var worstStatus: SessionStatus? {
         active.max { $0.status.severity < $1.status.severity }?.status
     }
