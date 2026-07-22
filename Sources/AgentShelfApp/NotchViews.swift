@@ -326,8 +326,10 @@ private struct OpenInClaudeButton: View {
 
 struct SessionRow: View {
     let session: Session
-    /// True while this specific session is in its ephemeral post-Stop "Done" flash
-    /// (see `NotchController.justCompletedSessionIDs`) — not a `SessionStatus`.
+    /// True for ~1.5s right after this session's `Stop` (see
+    /// `NotchController.justCompletedSessionIDs`) — drives only the checkmark glow in
+    /// `statusGlyph`, a purely visual "it just finished" beat. The "Done" *text* itself is a
+    /// durable idle-state label (see `activityLine`) and outlives this flash.
     let justCompleted: Bool
 
     var body: some View {
@@ -381,19 +383,21 @@ struct SessionRow: View {
         }
     }
 
-    /// "Done · <last action>" during the flash; animated "Working… <last action>" while
-    /// running (just "Working…" before the first tool call lands); else the plain last-known
-    /// activity, unchanged from before.
+    /// Animated "Working… <last action>" while running (just "Working…" before the first tool
+    /// call lands); "Done · <last action>" for any idle row — a permanent resting state, not
+    /// tied to the `justCompleted` flash, so it stays put once the checkmark fades rather than
+    /// reverting to a bare, completion-less activity string. Any other status (waiting/error)
+    /// falls back to the plain last-known activity.
     @ViewBuilder
     private var activityLine: some View {
         let activity = session.activityLabel
-        if justCompleted {
-            Text(activity.map { "Done · \($0)" } ?? "Done")
-                .font(.caption2).foregroundStyle(.tertiary)
-                .lineLimit(1).truncationMode(.middle)
-                .padding(.leading, 17)
-        } else if session.status == .running {
+        if session.status == .running {
             WorkingActivityLabel(activity: activity)
+                .padding(.leading, 17)
+        } else if session.status == .idle {
+            Text(activity.map { "Done · \($0)" } ?? "Done")
+                .font(.caption2).foregroundStyle(SessionStatus.running.color)
+                .lineLimit(1).truncationMode(.middle)
                 .padding(.leading, 17)
         } else if let activity {
             Text(activity)

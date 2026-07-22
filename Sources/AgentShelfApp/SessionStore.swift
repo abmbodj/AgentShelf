@@ -41,19 +41,23 @@ final class SessionStore: ObservableObject {
     }
 
     /// Every minute: when NO claude-ish process exists at all, idle rows are certainly
-    /// dead — drop them without waiting out the 15-minute prune. Running rows are never
-    /// touched, and pgrep over-matching only defers cleanup (the safe direction).
+    /// dead — drop them without waiting out the 15-minute prune. Also re-runs `prune()`'s
+    /// long-silence `.running` -> `.idle` settle on a timer, so a session whose own
+    /// Stop/SessionEnd never arrives doesn't need another hook event to notice — it clears on
+    /// its own within a minute of crossing that cutoff. pgrep over-matching only defers
+    /// cleanup (the safe direction).
     func startReaper() {
         Task { @MainActor in
             while true {
                 try? await Task.sleep(for: .seconds(60))
                 guard !sessions.isEmpty else { continue }
+                prune()
                 let alive = await Task.detached { Self.claudeProcessExists() }.value
                 if !alive {
                     sessions.removeAll { $0.status == .idle }
                     reindex()
-                    schedulePersist()
                 }
+                schedulePersist()
             }
         }
     }
@@ -115,6 +119,15 @@ final class SessionStore: ObservableObject {
             sessions[i].lastActivity = .now
             isNew = false
             didCompleteTurn = msg.event == "Stop" && isTopLevel && priorStatus == .running
+            // A top-level Stop means the turn is fully over — any subagent still hanging
+            // around under it is orphaned (its own SubagentStop never arrived, e.g. it was
+            // cancelled mid-flight) and would otherwise sit at `.running` forever, dragging
+            // `worstStatus` and keeping the pill's "Working…" up with nothing left running.
+            if msg.event == "Stop" && isTopLevel {
+                let before = sessions.count
+                sessions.removeAll { $0.parentId == msg.sessionId }
+                if sessions.count != before { reindex() }
+            }
         } else {
             index[msg.sessionId] = sessions.count
             var session = Session(id: msg.sessionId, source: msg.source,
@@ -147,9 +160,20 @@ final class SessionStore: ObservableObject {
     /// Keep the list bounded: drop long-idle sessions (safety net for sessions that never
     /// emit SessionEnd, e.g. a crash) and cap the total.
     private func prune() {
-        let cutoff = Date.now.addingTimeInterval(-15 * 60)
+        let idleCutoff = Date.now.addingTimeInterval(-15 * 60)
         let before = sessions.count
-        sessions.removeAll { $0.status == .idle && $0.lastActivity < cutoff }
+        sessions.removeAll { $0.status == .idle && $0.lastActivity < idleCutoff }
+        // A `.running` row is otherwise never revisited once set — if its own Stop/SubagentStop/
+        // SessionEnd never arrives (crashed process, killed session, an orphaned subagent, a
+        // stray manual test), it sits at `.running` forever and keeps `worstStatus` (and the
+        // pill's "Working…") stuck on with nothing actually running. Settle it back to idle
+        // after a long, generous silence — real tool calls report far more often than this —
+        // so it rejoins the normal idle lifecycle instead of lying about still being active.
+        let runningStaleCutoff = Date.now.addingTimeInterval(-20 * 60)
+        for i in sessions.indices
+        where sessions[i].status == .running && sessions[i].lastActivity < runningStaleCutoff {
+            sessions[i].status = .idle
+        }
         if sessions.count > 15 {
             sessions = Array(sessions.sorted { $0.lastActivity > $1.lastActivity }.prefix(15))
         }

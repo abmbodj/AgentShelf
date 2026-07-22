@@ -12,8 +12,10 @@ final class NotchController: ObservableObject {
 
     let store: SessionStore
     @Published private(set) var pinned = false
-    /// Session ids currently in their ephemeral "Done" flash (turn just completed) — each
-    /// entry drives that one row's checkmark/"Done" text and expires on its own timer.
+    /// Session ids currently in their ephemeral post-Stop flash (turn just completed) — each
+    /// entry drives that one row's checkmark glow for ~1.5s and then expires on its own timer.
+    /// Purely visual: the row's "Done" text itself is a durable idle-state label (see
+    /// `SessionRow.activityLine`) and doesn't depend on this set.
     @Published private(set) var justCompletedSessionIDs: Set<String> = []
     private var hovering = false
     private var flashing = false
@@ -129,9 +131,10 @@ final class NotchController: ObservableObject {
         }
     }
 
-    /// Turn-complete beat for one session: open the shelf, flash that session's row as
-    /// "Done" (~1.5s) + approval sound. Fully quiet when the jump target is frontmost;
-    /// if already expanded, still shows the flash/sound.
+    /// Turn-complete beat for one session: open the shelf, flash that session's checkmark
+    /// glow (~1.5s) + approval sound — the row's "Done" text itself already showed the moment
+    /// `Stop` set the session idle, and stays up well after this flash ends. Fully quiet when
+    /// the jump target is frontmost; if already expanded, still shows the flash/sound.
     func announceDone(sessionID: String) {
         guard !Self.jumpTargetIsFrontmost else { return }
         justCompletedSessionIDs.insert(sessionID)
@@ -175,6 +178,16 @@ final class NotchController: ObservableObject {
         applyWindowStyle()
         transition?.cancel()
         transition = Task {
+            // Coalesce a burst of store mutations (e.g. several PreToolUse/PostToolUse events
+            // landing within milliseconds of each other) into one settled call below. Each call
+            // to DynamicNotch's expand()/compact() that finds a window already open spawns its
+            // own internal, uncancellable close-then-reopen Task (see the vendored
+            // DynamicNotch._expand/_compact "already has window" branches) — cancelling our own
+            // `transition` here does not stop those, so firing one per event can leave two of
+            // them racing and the panel briefly rendered for a stale intermediate size. A short
+            // debounce means only the last event in a burst actually triggers a transition.
+            try? await Task.sleep(for: .milliseconds(40))
+            guard !Task.isCancelled else { return }
             if wantExpand { await notch.expand() }
             else if hasSessions { await notch.compact() }
             else { await notch.hide() }
