@@ -50,7 +50,7 @@ final class SessionStore: ObservableObject {
                 guard !sessions.isEmpty else { continue }
                 let alive = await Task.detached { Self.claudeProcessExists() }.value
                 if !alive {
-                    sessions.removeAll { $0.status == .idle || $0.status == .done }
+                    sessions.removeAll { $0.status == .idle }
                     reindex()
                     schedulePersist()
                 }
@@ -82,11 +82,12 @@ final class SessionStore: ObservableObject {
     /// Outcome of applying a hook message — drives new-session flash and Done announce.
     struct ApplyResult {
         var isNew: Bool
-        /// Top-level session transitioned running → idle via `Stop`.
-        var didCompleteTurn: Bool
+        /// Set to the session's id when a top-level session transitioned running → idle
+        /// via `Stop` (nil otherwise).
+        var completedSessionID: String?
     }
 
-    /// Apply a hook message. `didCompleteTurn` is set when a top-level session's prior
+    /// Apply a hook message. `completedSessionID` is set to the session's id when its prior
     /// status was `.running` and the event is `Stop`.
     @discardableResult
     func apply(_ msg: HookMessage) -> ApplyResult {
@@ -130,7 +131,7 @@ final class SessionStore: ObservableObject {
         }
         prune()
         schedulePersist()
-        return ApplyResult(isNew: isNew, didCompleteTurn: didCompleteTurn)
+        return ApplyResult(isNew: isNew, completedSessionID: didCompleteTurn ? msg.sessionId : nil)
     }
 
     /// The session ended (SessionEnd hook) — drop it, its subagents, and any pending attention.
@@ -148,7 +149,7 @@ final class SessionStore: ObservableObject {
     private func prune() {
         let cutoff = Date.now.addingTimeInterval(-15 * 60)
         let before = sessions.count
-        sessions.removeAll { ($0.status == .idle || $0.status == .done) && $0.lastActivity < cutoff }
+        sessions.removeAll { $0.status == .idle && $0.lastActivity < cutoff }
         if sessions.count > 15 {
             sessions = Array(sessions.sorted { $0.lastActivity > $1.lastActivity }.prefix(15))
         }
@@ -249,7 +250,7 @@ extension SessionStatus {
         case .waitingApproval: return .orange
         case .error: return .red
         case .running: return .green
-        case .idle, .done: return .secondary
+        case .idle: return .secondary
         }
     }
 
@@ -258,7 +259,6 @@ extension SessionStatus {
         case .waitingApproval: return "needs approval"
         case .running: return "running"
         case .idle: return "idle"
-        case .done: return "done"
         case .error: return "error"
         }
     }

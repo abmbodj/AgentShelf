@@ -86,24 +86,16 @@ struct SessionListView: View {
         }
     }
 
-    /// Slim top strip: usage (or Done. beat) on the left, pin on the right. The whole
-    /// strip is the pin affordance. Vibrant .secondary reads correctly over glass.
+    /// Slim top strip: usage on the left, pin on the right. The whole strip is the pin
+    /// affordance. Vibrant .secondary reads correctly over glass. ("Done" now lives on
+    /// the completed session's own row, not here — see `SessionRow`.)
     private var pinStrip: some View {
         HStack(spacing: 6) {
-            ZStack(alignment: .leading) {
-                if controller.showingDone {
-                    Text("Done.")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(SessionStatus.running.color)
-                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                } else if let usage = UsageCache.text {
-                    Text(usage)
-                        .font(.caption2).monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .transition(.opacity)
-                }
+            if let usage = UsageCache.text {
+                Text(usage)
+                    .font(.caption2).monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
-            .animation(.easeOut(duration: 0.2), value: controller.showingDone)
             Spacer()
             Image(systemName: controller.pinned ? "pin.fill" : "pin")
                 .font(.caption2).foregroundStyle(.secondary)
@@ -118,7 +110,8 @@ struct SessionListView: View {
             Text("Watching Claude Code…").font(.callout).foregroundStyle(.secondary)
         } else {
             ForEach(store.active) { session in
-                SessionRow(session: session)
+                SessionRow(session: session,
+                           justCompleted: controller.justCompletedSessionIDs.contains(session.id))
                     .contentShape(Rectangle())
                     .onTapGesture { controller.jump(session) }
             }
@@ -333,6 +326,10 @@ private struct OpenInClaudeButton: View {
 
 struct SessionRow: View {
     let session: Session
+    /// True while this specific session is in its ephemeral post-Stop "Done" flash
+    /// (see `NotchController.justCompletedSessionIDs`) — not a `SessionStatus`.
+    let justCompleted: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
@@ -340,7 +337,7 @@ struct SessionRow: View {
                     Image(systemName: "arrow.turn.down.right")
                         .font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
-                StatusDot(color: session.status.color, diameter: session.isSubagent ? 7 : 9)
+                statusGlyph
                 Text(session.displayLabel)
                     .font(.system(size: session.isSubagent ? 13 : 14, weight: .semibold))
                     .tracking(-0.1)
@@ -364,15 +361,46 @@ struct SessionRow: View {
                     .lineLimit(1).truncationMode(.tail)
                     .padding(.leading, 17)
             }
-            if let activity = session.activityLabel {
-                Text(activity)
-                    .font(.caption2).foregroundStyle(.tertiary)
-                    .lineLimit(1).truncationMode(.middle)
-                    .padding(.leading, 17)
-            }
+            activityLine
         }
         .padding(.vertical, 2)
         .padding(.leading, session.isSubagent ? 16 : 0)
+    }
+
+    /// A green checkmark during the "Done" flash, else the normal status dot.
+    @ViewBuilder
+    private var statusGlyph: some View {
+        let diameter: CGFloat = session.isSubagent ? 7 : 9
+        if justCompleted {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: diameter))
+                .foregroundStyle(SessionStatus.running.color)
+                .shadow(color: SessionStatus.running.color.opacity(0.7), radius: diameter * 0.45)
+        } else {
+            StatusDot(color: session.status.color, diameter: diameter)
+        }
+    }
+
+    /// "Done · <last action>" during the flash; animated "Working… <last action>" while
+    /// running (just "Working…" before the first tool call lands); else the plain last-known
+    /// activity, unchanged from before.
+    @ViewBuilder
+    private var activityLine: some View {
+        let activity = session.activityLabel
+        if justCompleted {
+            Text(activity.map { "Done · \($0)" } ?? "Done")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .lineLimit(1).truncationMode(.middle)
+                .padding(.leading, 17)
+        } else if session.status == .running {
+            WorkingActivityLabel(activity: activity)
+                .padding(.leading, 17)
+        } else if let activity {
+            Text(activity)
+                .font(.caption2).foregroundStyle(.tertiary)
+                .lineLimit(1).truncationMode(.middle)
+                .padding(.leading, 17)
+        }
     }
 
     /// "folder (branch)" — branch via a 30s TTL cache; never resolve VCS in a view
@@ -397,14 +425,21 @@ private struct StatusDot: View {
     }
 }
 
-/// Compact "Working…" with a cycling ellipsis pulse (~0.5s per step).
-private struct WorkingEllipsisLabel: View {
+/// Shared cycling ellipsis pulse (".", "..", "…" every ~0.5s) for both the compact pill's
+/// "Working…" and the expanded row's inline "Working…" text.
+private enum EllipsisPulse {
     private static let phases = [".", "..", "…"]
+    static func dots(at date: Date) -> String {
+        let step = Int(date.timeIntervalSinceReferenceDate / 0.5)
+        return phases[step % phases.count]
+    }
+}
 
+/// Compact "Working…" with a cycling ellipsis pulse.
+private struct WorkingEllipsisLabel: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { context in
-            let step = Int(context.date.timeIntervalSinceReferenceDate / 0.5)
-            let dots = Self.phases[step % Self.phases.count]
+            let dots = EllipsisPulse.dots(at: context.date)
             // Reserve the full "Working…" width so the pill doesn't jitter as dots cycle.
             Text("Working…")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -415,6 +450,25 @@ private struct WorkingEllipsisLabel: View {
                         .foregroundStyle(.white)
                 }
         }
+    }
+}
+
+/// Row-level "Working…" (+ optional last-action text), same reserve-width trick as the
+/// compact pill's `WorkingEllipsisLabel` so the row doesn't jitter as the dots cycle.
+private struct WorkingActivityLabel: View {
+    let activity: String?
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+            let dots = EllipsisPulse.dots(at: context.date)
+            let settled = activity.map { "Working… \($0)" } ?? "Working…"
+            let live = activity.map { "Working\(dots) \($0)" } ?? "Working\(dots)"
+            Text(settled)
+                .hidden()
+                .overlay(alignment: .leading) {
+                    Text(live).lineLimit(1).truncationMode(.middle)
+                }
+        }
+        .font(.caption2).foregroundStyle(.tertiary)
     }
 }
 

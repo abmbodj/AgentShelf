@@ -12,8 +12,9 @@ final class NotchController: ObservableObject {
 
     let store: SessionStore
     @Published private(set) var pinned = false
-    /// Ephemeral Done banner beat (turn complete) — not a session status.
-    @Published private(set) var showingDone = false
+    /// Session ids currently in their ephemeral "Done" flash (turn just completed) — each
+    /// entry drives that one row's checkmark/"Done" text and expires on its own timer.
+    @Published private(set) var justCompletedSessionIDs: Set<String> = []
     private var hovering = false
     private var flashing = false
     /// True right after `jump(cwd:)`, until the mouse actually leaves the notch (or a short
@@ -25,7 +26,9 @@ final class NotchController: ObservableObject {
     private var notch: AppNotch?
     private var transition: Task<Void, Never>?
     private var flashTask: Task<Void, Never>?
-    private var doneTask: Task<Void, Never>?
+    /// One expiry task per session currently flashing "Done" — keyed by session id so each
+    /// flash times out independently of any others in flight.
+    private var doneTasks: [String: Task<Void, Never>] = [:]
     private var suppressHoverTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
     private var hoverCancellable: AnyCancellable?
@@ -126,28 +129,30 @@ final class NotchController: ObservableObject {
         }
     }
 
-    /// Turn-complete beat: open the shelf with a `Done.` banner (~1.5s) + approval sound.
-    /// Fully quiet when the jump target is frontmost; if already expanded, still shows banner/sound.
-    func announceDone() {
+    /// Turn-complete beat for one session: open the shelf, flash that session's row as
+    /// "Done" (~1.5s) + approval sound. Fully quiet when the jump target is frontmost;
+    /// if already expanded, still shows the flash/sound.
+    func announceDone(sessionID: String) {
         guard !Self.jumpTargetIsFrontmost else { return }
-        showingDone = true
+        justCompletedSessionIDs.insert(sessionID)
         ApprovalSound.play()
         refresh()
-        doneTask?.cancel()
-        doneTask = Task {
+        doneTasks[sessionID]?.cancel()
+        doneTasks[sessionID] = Task {
             try? await Task.sleep(for: .seconds(1.5))
             guard !Task.isCancelled else { return }
-            showingDone = false
+            justCompletedSessionIDs.remove(sessionID)
+            doneTasks.removeValue(forKey: sessionID)
             refresh()
         }
     }
 
-    /// Drop an in-flight Done beat immediately (approvals win).
+    /// Drop all in-flight Done flashes immediately (approvals win).
     private func cancelDone() {
-        doneTask?.cancel()
-        doneTask = nil
-        if showingDone {
-            showingDone = false
+        for task in doneTasks.values { task.cancel() }
+        doneTasks.removeAll()
+        if !justCompletedSessionIDs.isEmpty {
+            justCompletedSessionIDs.removeAll()
         }
     }
 
@@ -159,7 +164,7 @@ final class NotchController: ObservableObject {
             cancelDone()
         }
         let hasSessions = !store.active.isEmpty
-        let wantExpand = pinned || hovering || flashing || showingDone
+        let wantExpand = pinned || hovering || flashing || !justCompletedSessionIDs.isEmpty
             || store.worstStatus == .waitingApproval
         // Fix stale styling on whatever window already exists *before* touching anything
         // async: a burst of hook events (PreToolUse, PermissionRequest, ...) can cancel the

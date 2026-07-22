@@ -48,7 +48,6 @@ public enum SessionStatus: String, Codable, Sendable {
     case running          // agent is working
     case waitingApproval  // a PermissionRequest is pending
     case idle             // waiting for user input
-    case done             // session ended
     case error
 
     /// Higher = more urgent; the pill shows the worst status across sessions.
@@ -57,7 +56,7 @@ public enum SessionStatus: String, Codable, Sendable {
         case .waitingApproval: return 3
         case .error: return 2
         case .running: return 1
-        case .idle, .done: return 0
+        case .idle: return 0
         }
     }
 }

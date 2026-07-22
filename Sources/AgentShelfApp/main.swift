@@ -52,8 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             store.endSession(msg.sessionId)
                         } else {
                             let result = store.apply(msg)
-                            if result.didCompleteTurn {
-                                controller.announceDone()
+                            if let completedID = result.completedSessionID {
+                                controller.announceDone(sessionID: completedID)
                             } else if result.isNew, msg.parentId == nil, !NotchController.jumpTargetIsFrontmost {
                                 // New-session flash is noise if you're already in the editor.
                                 // Subagents never trigger it — a burst of them would otherwise
