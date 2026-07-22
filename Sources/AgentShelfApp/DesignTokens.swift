@@ -32,4 +32,13 @@ enum DesignTokens {
     static var panelWidth: CGFloat {
         (NSScreen.screens.first?.realNotchSize?.width).map { $0 * 1.9 } ?? 340
     }
+
+    /// The bundled AgentShelf mark, decoded once — nil when unbundled (e.g. plain `swift run`,
+    /// no Contents/Resources; callers should fall back to the "cpu" SF Symbol). Returns a copy
+    /// each call since callers mutate isTemplate/size on the instance they get back.
+    private static let cachedAgentLogo: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
+    static func agentLogo() -> NSImage? { cachedAgentLogo?.copy() as? NSImage }
 }

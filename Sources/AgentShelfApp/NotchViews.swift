@@ -6,14 +6,27 @@ struct PillLeadingView: View {
     @ObservedObject var store: SessionStore
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "cpu")
-                .font(.system(size: 11, weight: .semibold))
+            agentGlyph
             Text("\(store.topLevelCount)")
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .monospacedDigit()
         }
         .foregroundStyle(.white)
         .padding(.leading, 4)
+    }
+
+    @ViewBuilder
+    private var agentGlyph: some View {
+        if let logo = DesignTokens.agentLogo() {
+            Image(nsImage: logo)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 14, height: 14)
+        } else {
+            Image(systemName: "cpu")
+                .font(.system(size: 11, weight: .semibold))
+        }
     }
 }
 

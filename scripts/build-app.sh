@@ -37,6 +37,14 @@ else
   echo "warning: no $ICON_ICNS (drop a source image at $ICON_SRC to generate one) — building without an app icon" >&2
 fi
 
+MENUBAR_ICON_SRC="Resources/MenuBarIcon-source.png"
+if [ -f "$MENUBAR_ICON_SRC" ]; then
+  mkdir -p "$APP/Contents/Resources"
+  cp "$MENUBAR_ICON_SRC" "$APP/Contents/Resources/MenuBarIcon.png"
+else
+  echo "warning: no $MENUBAR_ICON_SRC — menu bar will fall back to the cpu symbol" >&2
+fi
+
 # Sign with the best available identity so the bundle's identity is STABLE across rebuilds —
 # an ad-hoc signature changes every build (different bytes), which makes SMAppService/BTM treat
 # each build as a new app and pile up duplicate Login Items entries instead of updating one.

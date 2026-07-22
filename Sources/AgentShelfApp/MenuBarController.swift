@@ -27,13 +27,26 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "cpu", accessibilityDescription: "Agent Shelf")
+        item.button?.image = Self.statusItemIcon()
         let menu = NSMenu()
         menu.delegate = self          // rebuild each time it opens (reflects live install state)
         item.menu = menu
         statusItem = item
         Task { await checkForUpdate() }
         enableLaunchAtLoginByDefaultOnce()
+    }
+
+    /// The logo, bundled as a template image so AppKit renders it correctly across light/dark
+    /// menu bars and the click-highlight state — same auto-adapting behavior the "cpu" SF Symbol
+    /// had. Falls back to that symbol when unbundled (e.g. plain `swift run`, no Contents/Resources).
+    private static func statusItemIcon() -> NSImage? {
+        if let image = DesignTokens.agentLogo() {
+            image.isTemplate = true
+            image.size = NSSize(width: 20, height: 20)
+            image.accessibilityDescription = "Agent Shelf"
+            return image
+        }
+        return NSImage(systemSymbolName: "cpu", accessibilityDescription: "Agent Shelf")
     }
 
     /// First run only: opt into Launch at Login so most people never have to find the toggle.
