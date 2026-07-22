@@ -49,9 +49,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         if msg.event == "SessionEnd" {
                             store.endSession(msg.sessionId)
                         } else {
-                            let isNew = store.apply(msg)
-                            // New-session flash is noise if you're already in the editor.
-                            if isNew, !NotchController.jumpTargetIsFrontmost { controller.flash() }
+                            let result = store.apply(msg)
+                            if result.didCompleteTurn {
+                                controller.announceDone()
+                            } else if result.isNew, !NotchController.jumpTargetIsFrontmost {
+                                // New-session flash is noise if you're already in the editor.
+                                controller.flash()
+                            }
                         }
                         if ProcessInfo.processInfo.environment["AGENTSHELF_DEBUG"] != nil {
                             NSLog("AgentShelf: \(msg.event) \(msg.source.displayName) sessions=\(store.active.count) worst=\(store.worstStatus?.label ?? "-")")

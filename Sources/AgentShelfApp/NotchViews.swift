@@ -30,12 +30,17 @@ struct PillLeadingView: View {
     }
 }
 
-/// Compact pill, trailing half: worst-status dot.
+/// Compact pill, trailing half: animated Working… + status dot while running, else just the dot.
 struct PillTrailingView: View {
     @ObservedObject var store: SessionStore
     var body: some View {
-        StatusDot(color: (store.worstStatus ?? .idle).color, diameter: 9)
-            .padding(.trailing, 4)
+        HStack(spacing: 6) {
+            if store.worstStatus == .running {
+                WorkingEllipsisLabel()
+            }
+            StatusDot(color: (store.worstStatus ?? .idle).color, diameter: 9)
+        }
+        .padding(.trailing, 4)
     }
 }
 
@@ -43,7 +48,7 @@ struct PillTrailingView: View {
 /// Hover peeks, click pins (driven by controller).
 struct SessionListView: View {
     @ObservedObject var store: SessionStore
-    unowned let controller: NotchController
+    @ObservedObject var controller: NotchController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -75,15 +80,24 @@ struct SessionListView: View {
         }
     }
 
-    /// Slim, dim top strip: usage on the left, pin on the right, no wordmark. The whole
+    /// Slim top strip: usage (or Done. beat) on the left, pin on the right. The whole
     /// strip is the pin affordance. Vibrant .secondary reads correctly over glass.
     private var pinStrip: some View {
         HStack(spacing: 6) {
-            if let usage = UsageCache.text {
-                Text(usage)
-                    .font(.caption2).monospacedDigit()
-                    .foregroundStyle(.secondary)
+            ZStack(alignment: .leading) {
+                if controller.showingDone {
+                    Text("Done.")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SessionStatus.running.color)
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                } else if let usage = UsageCache.text {
+                    Text(usage)
+                        .font(.caption2).monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
+                }
             }
+            .animation(.easeOut(duration: 0.2), value: controller.showingDone)
             Spacer()
             Image(systemName: controller.pinned ? "pin.fill" : "pin")
                 .font(.caption2).foregroundStyle(.secondary)
@@ -374,6 +388,27 @@ private struct StatusDot: View {
             .fill(color)
             .frame(width: diameter, height: diameter)
             .shadow(color: color.opacity(0.7), radius: diameter * 0.45)
+    }
+}
+
+/// Compact "Working…" with a cycling ellipsis pulse (~0.5s per step).
+private struct WorkingEllipsisLabel: View {
+    private static let phases = [".", "..", "…"]
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+            let step = Int(context.date.timeIntervalSinceReferenceDate / 0.5)
+            let dots = Self.phases[step % Self.phases.count]
+            // Reserve the full "Working…" width so the pill doesn't jitter as dots cycle.
+            Text("Working…")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .hidden()
+                .overlay(alignment: .leading) {
+                    Text("Working\(dots)")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+        }
     }
 }
 

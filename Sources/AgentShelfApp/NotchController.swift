@@ -12,11 +12,14 @@ final class NotchController: ObservableObject {
 
     let store: SessionStore
     @Published private(set) var pinned = false
+    /// Ephemeral Done banner beat (turn complete) — not a session status.
+    @Published private(set) var showingDone = false
     private var hovering = false
     private var flashing = false
     private var notch: AppNotch?
     private var transition: Task<Void, Never>?
     private var flashTask: Task<Void, Never>?
+    private var doneTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
     private var hoverCancellable: AnyCancellable?
 
@@ -68,6 +71,7 @@ final class NotchController: ObservableObject {
         // opens (e.g. a first-run macOS permission dialog appears top-center too).
         pinned = false
         hovering = false
+        cancelDone()
         Task { await notch?.hide() }
     }
 
@@ -85,11 +89,41 @@ final class NotchController: ObservableObject {
         }
     }
 
-    /// Reconcile the notch after any state change (sessions, hover, pin, flash).
+    /// Turn-complete beat: open the shelf with a `Done.` banner (~1.5s) + approval sound.
+    /// Fully quiet when the jump target is frontmost; if already expanded, still shows banner/sound.
+    func announceDone() {
+        guard !Self.jumpTargetIsFrontmost else { return }
+        showingDone = true
+        ApprovalSound.play()
+        refresh()
+        doneTask?.cancel()
+        doneTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            showingDone = false
+            refresh()
+        }
+    }
+
+    /// Drop an in-flight Done beat immediately (approvals win).
+    private func cancelDone() {
+        doneTask?.cancel()
+        doneTask = nil
+        if showingDone {
+            showingDone = false
+        }
+    }
+
+    /// Reconcile the notch after any state change (sessions, hover, pin, flash, Done).
     func refresh() {
         guard let notch else { return }
+        // Decisions beat acknowledgements: clear Done as soon as attention arrives.
+        if store.hasAttention || store.worstStatus == .waitingApproval {
+            cancelDone()
+        }
         let hasSessions = !store.active.isEmpty
-        let wantExpand = pinned || hovering || flashing || store.worstStatus == .waitingApproval
+        let wantExpand = pinned || hovering || flashing || showingDone
+            || store.worstStatus == .waitingApproval
         // Fix stale styling on whatever window already exists *before* touching anything
         // async: a burst of hook events (PreToolUse, PermissionRequest, ...) can cancel the
         // previous transition before it ever reaches the styling step below, leaving the panel

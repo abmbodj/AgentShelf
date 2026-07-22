@@ -77,15 +77,26 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// Returns true if this created a new session (so the UI can flash to announce it).
+    /// Outcome of applying a hook message — drives new-session flash and Done announce.
+    struct ApplyResult {
+        var isNew: Bool
+        /// Top-level session transitioned running → idle via `Stop` (not SubagentStop).
+        var didCompleteTurn: Bool
+    }
+
+    /// Apply a hook message. `didCompleteTurn` is set when a top-level session's prior
+    /// status was `.running` and the event is `Stop`.
     @discardableResult
-    func apply(_ msg: HookMessage) -> Bool {
+    func apply(_ msg: HookMessage) -> ApplyResult {
         let newStatus = Self.status(for: msg.event)
         let isNew: Bool
+        let didCompleteTurn: Bool
         if let i = index[msg.sessionId] {
+            let priorStatus = sessions[i].status
+            let isTopLevel = sessions[i].parentId == nil
             // A pending approval or question owns the status: a late running event (parallel
             // tool, subagent traffic) must never clear the waiting card from under the user.
-            let waitingPending = sessions[i].status == .waitingApproval
+            let waitingPending = priorStatus == .waitingApproval
                 && (pendingApprovals.contains { $0.sessionId == msg.sessionId }
                     || pendingQuestions.contains { $0.sessionId == msg.sessionId })
             if let newStatus, !waitingPending || newStatus == .waitingApproval {
@@ -99,6 +110,7 @@ final class SessionStore: ObservableObject {
             if let prompt = msg.userPrompt { sessions[i].lastUserPrompt = prompt }
             sessions[i].lastActivity = .now
             isNew = false
+            didCompleteTurn = msg.event == "Stop" && isTopLevel && priorStatus == .running
         } else {
             index[msg.sessionId] = sessions.count
             var session = Session(id: msg.sessionId, source: msg.source,
@@ -110,10 +122,11 @@ final class SessionStore: ObservableObject {
             session.lastUserPrompt = msg.userPrompt
             sessions.append(session)
             isNew = true
+            didCompleteTurn = false
         }
         prune()
         schedulePersist()
-        return isNew
+        return ApplyResult(isNew: isNew, didCompleteTurn: didCompleteTurn)
     }
 
     /// The session ended (SessionEnd hook) — drop it, its subagents, and any pending attention.
