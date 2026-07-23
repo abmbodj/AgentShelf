@@ -53,11 +53,17 @@ fi
 SIGN_ID=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Developer ID Application" | sed -E 's/.*"(.+)".*/\1/' || true)
 [ -z "$SIGN_ID" ] && SIGN_ID=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Apple Development" | sed -E 's/.*"(.+)".*/\1/' || true)
 
+# A secure timestamp needs a reachable Apple timestamp server and only matters for
+# notarized (release) builds — requiring it for debug makes `codesign` fail offline
+# ("A timestamp was expected but was not found") and abort the script before it can relaunch.
+TS_FLAG="--timestamp"
+[ "$CONFIG" = "debug" ] && TS_FLAG="--timestamp=none"
+
 if [ -n "$SIGN_ID" ]; then
   for bin in agentshelf-hook agentshelf-setup AgentShelf; do
-    codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP/Contents/MacOS/$bin"
+    codesign --force --options runtime "$TS_FLAG" --sign "$SIGN_ID" "$APP/Contents/MacOS/$bin"
   done
-  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
+  codesign --force --options runtime "$TS_FLAG" --sign "$SIGN_ID" "$APP"
 fi
 
 echo "Built $APP  ($CONFIG)$([ -n "$SIGN_ID" ] && echo "  signed: $SIGN_ID")"
