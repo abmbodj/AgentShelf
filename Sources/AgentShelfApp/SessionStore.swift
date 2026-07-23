@@ -90,11 +90,13 @@ final class SessionStore: ObservableObject {
         for u in kept {
             if let i = index[u.hit.sessionId] {
                 sessions[i].status = .running
+                sessions[i].hasRun = true
                 sessions[i].lastActivity = .now
                 if let t = u.tool { sessions[i].lastTool = t }
                 if let s = u.summary { sessions[i].lastToolSummary = s }
             } else {
                 var session = Session(id: u.hit.sessionId, source: u.hit.source, cwd: u.hit.cwd, status: .running)
+                session.hasRun = true
                 session.lastTool = u.tool
                 session.lastToolSummary = u.summary
                 sessions.append(session)
@@ -140,6 +142,7 @@ final class SessionStore: ObservableObject {
                     || pendingQuestions.contains { $0.sessionId == msg.sessionId })
             if let newStatus, !waitingPending || newStatus == .waitingApproval {
                 sessions[i].status = newStatus
+                if newStatus == .running { sessions[i].hasRun = true }
             }
             if let tool = msg.toolName {
                 sessions[i].lastTool = tool
@@ -165,6 +168,7 @@ final class SessionStore: ObservableObject {
             var session = Session(id: msg.sessionId, source: msg.source,
                                   cwd: msg.cwd, status: newStatus ?? .idle,
                                   parentId: msg.parentId, agentType: msg.agentType)
+            session.hasRun = (newStatus == .running)
             session.lastTool = msg.toolName
             session.lastToolSummary = msg.toolSummary
             session.terminal = msg.terminal
@@ -210,6 +214,13 @@ final class SessionStore: ObservableObject {
             sessions = Array(sessions.sorted { $0.lastActivity > $1.lastActivity }.prefix(15))
         }
         if sessions.count != before { reindex() }
+    }
+
+    /// Marks a session as having done real work at least once, so a still-fresh `.idle` row
+    /// (just started, no tool call yet) doesn't render as "Done".
+    private func markRunning(_ i: Int) {
+        sessions[i].status = .running
+        sessions[i].hasRun = true
     }
 
     private func reindex() {
@@ -263,7 +274,7 @@ final class SessionStore: ObservableObject {
             pendingNotices.removeAll { $0.id == notice.id }
             // Clear the waiting state so the pill/notch don't stay stuck open.
             if let i = index[msg.sessionId], sessions[i].status == .waitingApproval {
-                sessions[i].status = .running
+                markRunning(i)
             }
         }
     }

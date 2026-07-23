@@ -73,15 +73,15 @@ struct SessionListView: View {
     private var attentionCard: some View {
         if let approval = store.pendingApprovals.first {
             ApprovalCard(request: approval) {
-                controller.jump(cwd: approval.cwd, tty: approval.tty, marker: approval.sessionId)
+                controller.jump(cwd: approval.cwd, tty: approval.tty, marker: approval.sessionId, terminal: approval.terminal)
             }
         } else if let question = store.pendingQuestions.first {
             QuestionCard(request: question) {
-                controller.jump(cwd: question.cwd, tty: question.tty, marker: question.sessionId)
+                controller.jump(cwd: question.cwd, tty: question.tty, marker: question.sessionId, terminal: question.terminal)
             }
         } else if let notice = store.pendingNotices.first {
             NeedsInputCard(notice: notice) {
-                controller.jump(cwd: notice.cwd, tty: notice.tty, marker: notice.sessionId)
+                controller.jump(cwd: notice.cwd, tty: notice.tty, marker: notice.sessionId, terminal: notice.terminal)
             }
         }
     }

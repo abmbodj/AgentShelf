@@ -19,6 +19,7 @@ final class ApprovalRequest: Identifiable {
     let source: AgentSource
     let cwd: String
     let tty: String?
+    let terminal: String?
     let toolName: String
     let toolSummary: String
     let diff: [DiffLine]   // empty unless the tool is Edit/MultiEdit/Write
@@ -30,6 +31,7 @@ final class ApprovalRequest: Identifiable {
         self.source = message.source
         self.cwd = message.cwd
         self.tty = message.tty
+        self.terminal = message.terminal
         self.toolName = message.toolName ?? "action"
         self.toolSummary = message.toolSummary ?? ""
         if let old = message.diffOld, let new = message.diffNew {
@@ -133,6 +135,7 @@ final class AttentionNotice: Identifiable {
     let source: AgentSource
     let cwd: String
     let tty: String?
+    let terminal: String?
     let toolName: String
 
     init(message: HookMessage) {
@@ -140,6 +143,7 @@ final class AttentionNotice: Identifiable {
         self.source = message.source
         self.cwd = message.cwd
         self.tty = message.tty
+        self.terminal = message.terminal
         self.toolName = message.toolName ?? "input"
     }
 

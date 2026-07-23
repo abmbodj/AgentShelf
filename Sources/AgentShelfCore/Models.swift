@@ -58,6 +58,10 @@ public struct Session: Codable, Identifiable, Sendable {
     public var source: AgentSource
     public var cwd: String
     public var status: SessionStatus
+    // Flips true the first time `status` reaches `.running`. Distinguishes a brand-new
+    // session (idle, never done anything) from one resting after a completed turn — the
+    // view only labels the latter "Done".
+    public var hasRun: Bool = false
     public var startedAt: Date
     public var lastActivity: Date
     public var parentId: String?     // set = this row is a subagent of parentId
@@ -83,7 +87,7 @@ public struct Session: Codable, Identifiable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, source, cwd, status, startedAt, lastActivity, parentId, agentType
+        case id, source, cwd, status, hasRun, startedAt, lastActivity, parentId, agentType
         case lastTool, lastToolSummary, terminal, tty
         // lastUserPrompt intentionally omitted.
     }
