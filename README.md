@@ -4,13 +4,13 @@
 ![Swift](https://img.shields.io/badge/swift-6.2%2B-orange)
 ![Xcode](https://img.shields.io/badge/xcode-16%2B-blue)
 
-A macOS menu-bar app that surfaces your Claude Code sessions — approvals, status, and
+A macOS menu-bar app that surfaces your AI coding agent sessions — approvals, status, and
 activity — in the notch, so you don't have to keep switching back to the terminal.
 
 AgentShelf sits above everything else on screen as a small pill in (or near) the notch.
-It quietly tracks every Claude Code session you have running, expands to show what's
-happening when it matters, and lets you approve or deny a tool call without ever leaving
-whatever you're doing.
+It quietly tracks every agent session you have running across **26 supported agents**,
+expands to show what's happening when it matters, and — for Claude Code — lets you approve or
+deny a tool call without ever leaving whatever you're doing.
 
 ## Contents
 
@@ -37,6 +37,26 @@ AgentShelf itself checks for new releases on launch and shows an "Update availab
 the menu bar when one exists — no auto-install, it just links you to the release page.
 
 ## Features
+
+- **Zero config.** Nothing to wire up for monitoring. AgentShelf detects running agents by
+  their process automatically, so the ~24 monitor-tier agents just show up — no config file is
+  ever touched for them. The one thing that *is* installable, Claude Code's hooks (for
+  approve/deny in the notch), is a single consented click from **Configure Agents…** in the
+  menu bar, installed surgically and fully reversible.
+
+- **Every agent, one glance.** One notch tracks all of these when they're running: Claude
+  Code, Codex, ZCode, Gemini CLI, Antigravity CLI, Cursor, Trae, OpenCode, MiMoCode, Droid,
+  Qoder, Qwen, Grok Build, Kimi Code, DeepSeek, Mistral Vibe, Copilot, CodeBuddy, WorkBuddy,
+  Kiro, Hermes, Amp, Pi Agent, Oh My Pi, Gajae Code, and Kimi — 26 agents. Capability is
+  honest and tiered: **Claude Code** gets the full approve/deny flow (it has a real blocking
+  hook); agents that write a session log get folder + live activity; the rest show up as
+  running/idle with their folder. Any agent can be promoted as its integration surface is
+  verified.
+
+- **Precise terminal jump.** Click a session and AgentShelf raises the exact tab/split — not
+  just the app — for the terminals it can script: iTerm2, Apple Terminal, WezTerm, Kitty,
+  Ghostty, tmux, and IDE integrated terminals (Cursor). Other terminals (Warp, Zed, Hyper,
+  Termius, cmux, Conductor, …) get best-effort app activation for the session's folder.
 
 - **Live session pills in the notch.** Every running Claude Code session shows up as a
   row — folder name, agent type, elapsed time, and a friendly activity label ("Writing
@@ -135,7 +155,9 @@ swift test
 
 `Tests/AgentShelfCoreTests` covers the install/uninstall logic for Claude Code hooks, the
 statusline wrapper, and Cursor settings; permission classification (binary vs. non-binary
-prompts); the file-diff builder; subagent nesting order; and jump-target resolution.
+prompts); the file-diff builder; subagent nesting order; jump-target resolution; the 26-agent
+registry and its tiers; process-match boundary logic (so `claude-code` never fires the
+`claude` row, etc.); and the session-log tailer's record parsing and enrichment.
 
 ## Releasing (maintainers)
 
@@ -163,9 +185,16 @@ Manage Certificates, which requires an active paid Apple Developer Program membe
 
 ## Roadmap
 
-AgentShelf's session model already accounts for more than one coding agent
-(`AgentSource`: `claudeCode`, `codex`, `geminiCLI`, `cursor`), with a `Capability` flag
-distinguishing full approval flows from status-only monitoring. Today, **Claude Code is
-the only fully-wired integration** — it's the only one with a real hook, installer, and
-approval flow. Codex, Gemini CLI, and Cursor are modeled as monitor-only placeholders for
-future support and don't yet report any sessions to the shelf.
+All 26 agents are surfaced through a single `AgentRegistry` table (`Sources/AgentShelfCore/
+AgentRegistry.swift`) that assigns each a tier: `fullApproval` (a real blocking hook — Claude
+Code only, today), `richMonitor` (a known session-log format, tailed for live activity), or
+`presence` (detected by its running process, shown as running/idle + folder). Monitor-tier
+agents are picked up passively by `ProcessMonitor` (one `ps` sweep + `lsof` for each match) —
+no config, no hook. **Claude Code remains the only full approve/deny integration.**
+
+Two things are deliberately best-effort and tightened as real installs are tested: the
+process-match tokens and log directories for the long-tail agents (several are obscure or
+regional), and the `richMonitor` log parsers. Both fail safe — an unmatched agent simply
+doesn't appear, and a wrong log path just drops the activity label without affecting the
+running/idle row. Promoting an agent (e.g. verifying a Codex/Gemini blocking hook to move it
+to `fullApproval`) is a registry edit, not a schema change.

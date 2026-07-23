@@ -85,14 +85,20 @@ final class NotchController: ObservableObject {
 
     /// Focus the editor window for a session's folder — or, if it's a Claude Code session
     /// running in one of Cursor's own integrated-terminal tabs, the exact tab.
-    func jump(_ session: Session) { jump(cwd: session.cwd, tty: session.tty, marker: session.id) }
-    func jump(cwd: String, tty: String? = nil, marker: String? = nil) {
+    func jump(_ session: Session) {
+        jump(cwd: session.cwd, tty: session.tty, marker: session.id, terminal: session.terminal)
+    }
+    func jump(cwd: String, tty: String? = nil, marker: String? = nil, terminal: String? = nil) {
         // Off the main actor: CursorTabFocuser's Accessibility calls and JumpService's Process
         // launch can both block for seconds — or indefinitely on a one-time "Allow AgentShelf to
         // control your computer" permission prompt — and that must never freeze the notch's UI
         // (same precedent as QuestionRequest.choose's terminal injection).
         Task.detached {
+            // 1. IDE integrated terminal (Cursor) — exact tab via the tagged tty.
             if let tty, let marker, CursorTabFocuser.focus(tty: tty, marker: marker) { return }
+            // 2. Standalone terminal — exact tab/pane where scriptable, else raise its app.
+            if TerminalJump.focus(terminal: terminal, cwd: cwd, tty: tty) { return }
+            // 3. Editor fallback — open the folder in Cursor/VS Code.
             JumpService.focus(cwd: cwd)
         }
         // You're leaving for the session — collapse the shelf so it can't cover whatever

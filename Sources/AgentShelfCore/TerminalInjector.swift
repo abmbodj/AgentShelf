@@ -68,12 +68,35 @@ public enum TerminalInjector {
         return runOSAScript(script) == "ok"
     }
 
+    /// Precise "Open in Agent" jump: raise the exact tab/window a session's cwd runs in, without
+    /// typing anything. Same terminals as `inject`; false = caller falls back to app activation.
+    public static func focusTab(cwd: String, terminal: String?) -> Bool {
+        guard supports(terminal) else { return false }
+        let cwd = canonicalPath(cwd)
+        switch terminal {
+        case "iTerm.app": return focusITerm(cwd: cwd)
+        case "Apple_Terminal": return focusAppleTerminal(cwd: cwd)
+        default: return false
+        }
+    }
+
     // MARK: - Apple Terminal
     // Terminal.app's AppleScript dictionary has no per-tab cwd, so tabs are matched by tty:
     // list each tab's tty, find the tty's live processes via `ps`, and check each process's
     // cwd via `lsof`. First match wins — two sessions sharing a cwd (rare) can't be
     // disambiguated this way and may target the wrong tab.
     private static func injectAppleTerminal(keys: String, cwd: String) -> Bool {
+        guard focusAppleTerminal(cwd: cwd) else { return false }
+        Thread.sleep(forTimeInterval: 0.15)   // let Terminal actually raise the tab before typing
+        let keystrokeScript = """
+        tell application "System Events" to tell process "Terminal"
+            keystroke "\(asScript(keys))"
+        end tell
+        """
+        return runOSAScript(keystrokeScript) != nil
+    }
+
+    private static func focusAppleTerminal(cwd: String) -> Bool {
         guard let tab = findAppleTerminalTab(cwd: cwd) else { return false }
         let focusScript = """
         tell application "Terminal"
@@ -82,14 +105,35 @@ public enum TerminalInjector {
             activate
         end tell
         """
-        guard runOSAScript(focusScript) != nil else { return false }
-        Thread.sleep(forTimeInterval: 0.15)   // let Terminal actually raise the tab before typing
-        let keystrokeScript = """
-        tell application "System Events" to tell process "Terminal"
-            keystroke "\(asScript(keys))"
+        return runOSAScript(focusScript) != nil
+    }
+
+    // MARK: - iTerm2 (select only)
+    // ponytail: same documented dictionary as injectITerm, select-only. Small duplication of the
+    // window/tab/session traversal rather than threading a "type or not" flag through it.
+    private static func focusITerm(cwd: String) -> Bool {
+        let script = """
+        tell application "iTerm2"
+            repeat with w in windows
+                repeat with t in tabs of w
+                    repeat with s in sessions of t
+                        tell s
+                            set p to (variable named "session.path")
+                        end tell
+                        if p is equal to "\(asScript(cwd))" then
+                            tell w to select
+                            tell t to select
+                            tell s to select
+                            activate
+                            return "ok"
+                        end if
+                    end repeat
+                end repeat
+            end repeat
+            return "notfound"
         end tell
         """
-        return runOSAScript(keystrokeScript) != nil
+        return runOSAScript(script) == "ok"
     }
 
     private struct AppleTerminalTab { let windowId: Int; let tabIndex: Int; let tty: String }

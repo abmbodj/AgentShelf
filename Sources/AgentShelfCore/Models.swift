@@ -20,28 +20,20 @@ public enum Capability: String, Codable, Sendable {
     case monitorOnly    // status/notify only, no approval surface
 }
 
-/// Supported agents. Extension seam: adding an agent is a new case + capability.
+/// Supported agents. Metadata (display name, capability, process match, log source) lives in
+/// AgentRegistry — a case here is just the stable, Codable key. The rawValues of the original
+/// four are unchanged so already-persisted sessions.json still decodes.
 public enum AgentSource: String, Codable, Sendable, CaseIterable {
-    case claudeCode
-    case codex
-    case geminiCLI
-    case cursor
+    case claudeCode, codex, zcode, geminiCLI, antigravityCLI, cursor, trae, openCode
+    case mimoCode, droid, qoder, qwen, grokBuild, kimiCode, deepSeek, mistralVibe
+    case copilot, codeBuddy, workBuddy, kiro, hermes, amp, piAgent, ohMyPi, gajaeCode, kimi
 
+    /// .fullApproval only for agents whose tier can answer a blocking permission (Claude Code).
     public var capability: Capability {
-        switch self {
-        case .claudeCode: return .fullApproval
-        default: return .monitorOnly
-        }
+        AgentRegistry.integration(for: self).tier == .fullApproval ? .fullApproval : .monitorOnly
     }
 
-    public var displayName: String {
-        switch self {
-        case .claudeCode: return "claude"
-        case .codex: return "codex"
-        case .geminiCLI: return "gemini"
-        case .cursor: return "cursor"
-        }
-    }
+    public var displayName: String { AgentRegistry.integration(for: self).displayName }
 }
 
 public enum SessionStatus: String, Codable, Sendable {

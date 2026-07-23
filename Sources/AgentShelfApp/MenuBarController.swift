@@ -107,6 +107,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         add(menu, cursorTabsInstalled ? "Uninstall Cursor Tab Targeting" : "Install Cursor Tab Targeting",
             #selector(toggleCursorTabTargeting))
 
+        add(menu, "Configure Agents…", #selector(configureAgents))
         add(menu, "Check Hooks…", #selector(checkHooks))
 
         let launch = add(menu, "Launch at Login", #selector(toggleLaunchAtLogin))
@@ -176,6 +177,36 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             let alert = NSAlert()
             alert.messageText = "Cursor settings update failed"
             alert.informativeText = "\(error)"
+            alert.runModal()
+        }
+    }
+
+    /// Zero-config surface: shows which of the 26 agents are running right now (auto-detected,
+    /// no setup) and the one agent that needs a consented config edit — Claude Code's hook, for
+    /// the full approve/deny flow. One click installs it; monitor-tier agents need nothing.
+    @objc private func configureAgents() {
+        let running = ProcessMonitor.scan()
+        let names = Set(running.map { $0.source.displayName }).sorted()
+
+        var lines = ["AgentShelf detects 26 agents automatically — no config for monitoring."]
+        lines.append("")
+        lines.append(names.isEmpty ? "No agents running right now."
+                     : "Running now: \(names.joined(separator: ", "))")
+
+        let hooksInstalled = (try? installer.isInstalled()) ?? false
+        lines.append("")
+        lines.append(hooksInstalled
+                     ? "Claude Code hooks: installed (approve/deny in the notch is on)."
+                     : "Claude Code hooks: not installed — install for approve/deny in the notch.")
+
+        let alert = NSAlert()
+        alert.messageText = "Agents"
+        alert.informativeText = lines.joined(separator: "\n")
+        if !hooksInstalled {
+            alert.addButton(withTitle: "Install Claude Code Hooks")
+            alert.addButton(withTitle: "Close")
+            if alert.runModal() == .alertFirstButtonReturn { toggleHooks() }
+        } else {
             alert.runModal()
         }
     }

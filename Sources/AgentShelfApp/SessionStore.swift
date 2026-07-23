@@ -40,35 +40,67 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// Every minute: when NO claude-ish process exists at all, idle rows are certainly
-    /// dead — drop them without waiting out the 15-minute prune. Also re-runs `prune()`'s
-    /// long-silence `.running` -> `.idle` settle on a timer, so a session whose own
-    /// Stop/SessionEnd never arrives doesn't need another hook event to notice — it clears on
-    /// its own within a minute of crossing that cutoff. pgrep over-matching only defers
-    /// cleanup (the safe direction).
+    /// The monitor/reaper cadence. Also detects newly launched monitor-tier agents, so it's the
+    /// latency for a non-hook agent to appear — kept snappy. ponytail: fixed 4s; a notch-expanded
+    /// burst mode could go faster, but ps/lsof are cheap enough that one interval is simpler.
+    private static let monitorInterval = 4
+
+    /// Every tick: sweep for running agents (ProcessMonitor) and reconcile their synthetic rows,
+    /// re-run prune()'s long-silence settle, and — when NO agent process exists at all — drop
+    /// idle rows without waiting out the 15-minute prune. Over-matching only defers cleanup
+    /// (the safe direction). Runs even when `sessions` is empty, to pick up a freshly started agent.
     func startReaper() {
         Task { @MainActor in
             while true {
-                try? await Task.sleep(for: .seconds(60))
-                guard !sessions.isEmpty else { continue }
+                try? await Task.sleep(for: .seconds(Self.monitorInterval))
+                let updates = await Task.detached { Self.gatherMonitorUpdates() }.value
+                reconcileMonitor(updates)
                 prune()
-                let alive = await Task.detached { Self.claudeProcessExists() }.value
-                if !alive {
+                if updates.isEmpty {   // no agent running at all -> idle rows are certainly dead
+                    let hadIdle = sessions.contains { $0.status == .idle }
                     sessions.removeAll { $0.status == .idle }
-                    reindex()
+                    if hadIdle { reindex() }
                 }
                 schedulePersist()
             }
         }
     }
 
-    nonisolated private static func claudeProcessExists() -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        p.arguments = ["-f", "claude"]
-        p.standardOutput = FileHandle.nullDevice
-        do { try p.run(); p.waitUntilExit(); return p.terminationStatus == 0 }
-        catch { return true }   // can't tell -> assume alive, never reap blind
+    /// One synthetic-row update: a detected process plus any activity tailed from its log.
+    struct MonitorUpdate: Sendable { let hit: MonitorHit; let tool: String?; let summary: String? }
+
+    /// Off-actor: scan processes, then enrich richMonitor hits with their latest log activity.
+    nonisolated private static func gatherMonitorUpdates() -> [MonitorUpdate] {
+        ProcessMonitor.scan().map { hit in
+            let act = SessionLogTailer.activity(for: hit.source)
+            return MonitorUpdate(hit: hit, tool: act?.tool, summary: act?.summary)
+        }
+    }
+
+    /// Reconcile process-detected rows: add/refresh a `proc:*` row per live agent, drop ones whose
+    /// process is gone, and never shadow a hook-fed session for the same agent+folder (Claude
+    /// Code's richer row always wins, so a claude process doesn't double-count).
+    func reconcileMonitor(_ updates: [MonitorUpdate]) {
+        let hookCovered = Set(sessions.filter { !$0.id.hasPrefix("proc:") }
+            .map { "\($0.source.rawValue)|\($0.cwd)" })
+        let kept = updates.filter { !hookCovered.contains("\($0.hit.source.rawValue)|\($0.hit.cwd)") }
+        let liveIds = Set(kept.map { $0.hit.sessionId })
+
+        sessions.removeAll { $0.id.hasPrefix("proc:") && !liveIds.contains($0.id) }
+        for u in kept {
+            if let i = index[u.hit.sessionId] {
+                sessions[i].status = .running
+                sessions[i].lastActivity = .now
+                if let t = u.tool { sessions[i].lastTool = t }
+                if let s = u.summary { sessions[i].lastToolSummary = s }
+            } else {
+                var session = Session(id: u.hit.sessionId, source: u.hit.source, cwd: u.hit.cwd, status: .running)
+                session.lastTool = u.tool
+                session.lastToolSummary = u.summary
+                sessions.append(session)
+            }
+        }
+        reindex()
     }
 
     /// Map a hook event to the status it implies (nil = leave status unchanged).
