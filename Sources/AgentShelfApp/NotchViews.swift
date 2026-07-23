@@ -394,7 +394,7 @@ struct SessionRow: View {
         if session.status == .running {
             WorkingActivityLabel(activity: activity)
                 .padding(.leading, 17)
-        } else if session.status == .idle {
+        } else if session.status == .idle && session.hasRun {
             Text(activity.map { "Done · \($0)" } ?? "Done")
                 .font(.caption2).foregroundStyle(SessionStatus.running.color)
                 .lineLimit(1).truncationMode(.middle)

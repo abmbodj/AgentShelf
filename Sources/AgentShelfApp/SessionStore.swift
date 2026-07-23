@@ -283,7 +283,7 @@ final class SessionStore: ObservableObject {
     func removeApproval(sessionId: String) {
         pendingApprovals.removeAll { $0.sessionId == sessionId }
         if let i = index[sessionId], sessions[i].status == .waitingApproval {
-            sessions[i].status = .running
+            markRunning(i)
         }
     }
 
@@ -291,7 +291,7 @@ final class SessionStore: ObservableObject {
     func removeQuestion(sessionId: String) {
         pendingQuestions.removeAll { $0.sessionId == sessionId }
         if let i = index[sessionId], sessions[i].status == .waitingApproval {
-            sessions[i].status = .running
+            markRunning(i)
         }
     }
 

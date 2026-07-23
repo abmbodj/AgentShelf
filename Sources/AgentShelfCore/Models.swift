@@ -92,6 +92,26 @@ public struct Session: Codable, Identifiable, Sendable {
         // lastUserPrompt intentionally omitted.
     }
 
+    // Hand-written (not synthesized) so `hasRun` can default to false when decoding
+    // sessions.json rows persisted before this field existed — synthesized Decodable
+    // has no such fallback for a missing key on a non-Optional property.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        source = try c.decode(AgentSource.self, forKey: .source)
+        cwd = try c.decode(String.self, forKey: .cwd)
+        status = try c.decode(SessionStatus.self, forKey: .status)
+        hasRun = try c.decodeIfPresent(Bool.self, forKey: .hasRun) ?? false
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        lastActivity = try c.decode(Date.self, forKey: .lastActivity)
+        parentId = try c.decodeIfPresent(String.self, forKey: .parentId)
+        agentType = try c.decodeIfPresent(String.self, forKey: .agentType)
+        lastTool = try c.decodeIfPresent(String.self, forKey: .lastTool)
+        lastToolSummary = try c.decodeIfPresent(String.self, forKey: .lastToolSummary)
+        terminal = try c.decodeIfPresent(String.self, forKey: .terminal)
+        tty = try c.decodeIfPresent(String.self, forKey: .tty)
+    }
+
     /// Last path component of cwd — the repo/folder label shown in a row.
     public var folderName: String {
         (cwd as NSString).lastPathComponent

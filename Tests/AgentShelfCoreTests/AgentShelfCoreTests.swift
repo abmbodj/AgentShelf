@@ -44,6 +44,25 @@ import Foundation
     #expect(s.folderName == "AgentShelf")
 }
 
+@Test func hasRunDefaultsFalseAndRoundTrips() throws {
+    // A freshly constructed session hasn't run yet (SessionStore only flips this once
+    // status reaches .running) — the notch label logic depends on this starting false.
+    var s = Session(id: "1", source: .claudeCode, cwd: "/tmp", status: .idle)
+    #expect(s.hasRun == false)
+
+    s.hasRun = true
+    let data = try JSONEncoder().encode(s)
+    let decoded = try JSONDecoder().decode(Session.self, from: data)
+    #expect(decoded.hasRun == true)
+
+    // Sessions persisted before this field existed must still decode (missing key -> default).
+    var legacyObj = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    legacyObj.removeValue(forKey: "hasRun")
+    let legacyData = try JSONSerialization.data(withJSONObject: legacyObj)
+    let legacy = try JSONDecoder().decode(Session.self, from: legacyData)
+    #expect(legacy.hasRun == false)
+}
+
 @Test func permissionRequestRoundTrips() throws {
     let path = NSTemporaryDirectory() + "as-test-\(UUID().uuidString).sock"
     let server = UnixSocketServer(path: path)
