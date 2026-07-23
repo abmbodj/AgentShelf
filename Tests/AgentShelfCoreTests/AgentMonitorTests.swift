@@ -69,8 +69,50 @@ import Foundation
     let act = SessionLogTailer.activity(for: .codex, home: tmp)
     #expect(act?.tool == "Bash")
     #expect(act?.summary == "swift test")
+    #expect(act?.isFresh() == true)
 }
 
 @Test func activityIsNilForPresenceTierAgent() {
     #expect(SessionLogTailer.activity(for: .droid) == nil)   // no logSource -> no enrichment
+}
+
+@Test func activityIsFreshOnlyWithinWindow() throws {
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("agentshelf-test-\(UUID().uuidString)")
+    let dir = tmp.appendingPathComponent(".codex/sessions")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+
+    let file = dir.appendingPathComponent("old.jsonl")
+    try Data(#"{"tool_name":"Read","file_path":"/a"}"#.utf8).write(to: file)
+    // Backdate mtime past the fresh window so a brand-new process wouldn't look "working".
+    let staleDate = Date.now.addingTimeInterval(-(SessionLogTailer.freshWindow + 5))
+    try FileManager.default.setAttributes([.modificationDate: staleDate], ofItemAtPath: file.path)
+
+    let act = SessionLogTailer.activity(for: .codex, home: tmp)
+    #expect(act?.tool == "Read")
+    #expect(act?.isFresh() == false)
+}
+
+// MARK: - Monitor row status (process alive ≠ working)
+
+@Test func newMonitorRowWithoutFreshActivityIsIdle() {
+    let state = SessionLogTailer.rowState(isFresh: false)
+    #expect(state.status == .idle)
+    #expect(state.hasRun == false)
+    #expect(state.applyToolLabels == false)
+}
+
+@Test func freshLogActivityPromotesMonitorRowToRunning() {
+    let state = SessionLogTailer.rowState(isFresh: true)
+    #expect(state.status == .running)
+    #expect(state.hasRun == true)
+    #expect(state.applyToolLabels == true)
+}
+
+@Test func staleLogAfterPriorWorkSettlesToIdleKeepingHasRun() {
+    let state = SessionLogTailer.rowState(isFresh: false, priorHasRun: true)
+    #expect(state.status == .idle)
+    #expect(state.hasRun == true)
+    #expect(state.applyToolLabels == false)
 }

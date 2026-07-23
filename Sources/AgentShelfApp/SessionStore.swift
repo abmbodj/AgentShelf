@@ -67,19 +67,29 @@ final class SessionStore: ObservableObject {
     }
 
     /// One synthetic-row update: a detected process plus any activity tailed from its log.
-    struct MonitorUpdate: Sendable { let hit: MonitorHit; let tool: String?; let summary: String? }
+    /// `isFresh` means the log was written recently enough to count as live work — process
+    /// alive alone is not enough (a new session sitting at a prompt must stay idle).
+    struct MonitorUpdate: Sendable {
+        let hit: MonitorHit
+        let tool: String?
+        let summary: String?
+        let isFresh: Bool
+    }
 
     /// Off-actor: scan processes, then enrich richMonitor hits with their latest log activity.
     nonisolated private static func gatherMonitorUpdates() -> [MonitorUpdate] {
         ProcessMonitor.scan().map { hit in
             let act = SessionLogTailer.activity(for: hit.source)
-            return MonitorUpdate(hit: hit, tool: act?.tool, summary: act?.summary)
+            return MonitorUpdate(hit: hit, tool: act?.tool, summary: act?.summary,
+                                 isFresh: act?.isFresh() ?? false)
         }
     }
 
     /// Reconcile process-detected rows: add/refresh a `proc:*` row per live agent, drop ones whose
     /// process is gone, and never shadow a hook-fed session for the same agent+folder (Claude
     /// Code's richer row always wins, so a claude process doesn't double-count).
+    /// New rows start idle; only fresh log activity promotes to running (presence-tier /
+    /// Claude-before-hooks stay idle until real work evidence arrives).
     func reconcileMonitor(_ updates: [MonitorUpdate]) {
         let hookCovered = Set(sessions.filter { !$0.id.hasPrefix("proc:") }
             .map { "\($0.source.rawValue)|\($0.cwd)" })
@@ -89,16 +99,23 @@ final class SessionStore: ObservableObject {
         sessions.removeAll { $0.id.hasPrefix("proc:") && !liveIds.contains($0.id) }
         for u in kept {
             if let i = index[u.hit.sessionId] {
-                sessions[i].status = .running
-                sessions[i].hasRun = true
+                let state = SessionLogTailer.rowState(isFresh: u.isFresh, priorHasRun: sessions[i].hasRun)
+                sessions[i].status = state.status
+                sessions[i].hasRun = state.hasRun
+                if state.applyToolLabels {
+                    if let t = u.tool { sessions[i].lastTool = t }
+                    if let s = u.summary { sessions[i].lastToolSummary = s }
+                }
                 sessions[i].lastActivity = .now
-                if let t = u.tool { sessions[i].lastTool = t }
-                if let s = u.summary { sessions[i].lastToolSummary = s }
             } else {
-                var session = Session(id: u.hit.sessionId, source: u.hit.source, cwd: u.hit.cwd, status: .running)
-                session.hasRun = true
-                session.lastTool = u.tool
-                session.lastToolSummary = u.summary
+                let state = SessionLogTailer.rowState(isFresh: u.isFresh)
+                var session = Session(id: u.hit.sessionId, source: u.hit.source, cwd: u.hit.cwd,
+                                      status: state.status)
+                session.hasRun = state.hasRun
+                if state.applyToolLabels {
+                    session.lastTool = u.tool
+                    session.lastToolSummary = u.summary
+                }
                 sessions.append(session)
             }
         }

@@ -12,7 +12,8 @@ public enum AgentTier: Sendable, Equatable {
 
 /// Where a .richMonitor agent writes its session log. `dir` is relative to the home directory;
 /// the newest matching file is tailed for the last tool/file. Best-effort and fail-safe: a wrong
-/// dir just means no activity label — process detection still shows the session as running.
+/// dir just means no activity label — process detection still shows the session (idle until the
+/// log is freshly written, then running).
 public struct LogSource: Sendable, Equatable {
     public let dir: String   // e.g. ".codex/sessions"
     public let ext: String   // "jsonl" | "json"

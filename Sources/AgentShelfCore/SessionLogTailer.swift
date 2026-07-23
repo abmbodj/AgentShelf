@@ -5,9 +5,27 @@ import Foundation
 /// show "Editing foo.ts" like a hook-fed one. Purely additive and fail-safe: no file, an
 /// unreadable file, or an unknown schema just yields nil and the row stays plain running/idle.
 public enum SessionLogTailer {
+    /// How recently a log must have been written to count as "the agent is working now".
+    /// Longer than the monitor tick (4s) so a brief pause between tools doesn't flicker idle,
+    /// short enough that a brand-new process doesn't inherit a previous session's "Working…".
+    public static let freshWindow: TimeInterval = 30
+
     public struct Activity: Sendable, Equatable {
         public let tool: String?
         public let summary: String?
+        /// Content-modification time of the log file this activity came from.
+        public let modifiedAt: Date
+
+        public init(tool: String?, summary: String?, modifiedAt: Date) {
+            self.tool = tool
+            self.summary = summary
+            self.modifiedAt = modifiedAt
+        }
+
+        /// True when the log was written within `freshWindow` of `now`.
+        public func isFresh(now: Date = .now, window: TimeInterval = SessionLogTailer.freshWindow) -> Bool {
+            now.timeIntervalSince(modifiedAt) <= window
+        }
     }
 
     /// Common key spellings across agents' logs — we don't know each schema, so we probe a
@@ -16,25 +34,45 @@ public enum SessionLogTailer {
     private static let toolKeys = ["tool_name", "toolName", "tool", "name", "type"]
     private static let fileKeys = ["file_path", "filePath", "path", "file", "command", "summary", "cwd"]
 
+    /// How a process-monitor row should look given log freshness and whether this row has
+    /// already done real work. Process alive alone never implies running.
+    public struct RowState: Sendable, Equatable {
+        public let status: SessionStatus
+        public let hasRun: Bool
+        /// When true, callers should write tool/summary onto the session; when false, leave
+        /// any prior labels alone (and don't paint a new row with a stale prior-session log).
+        public let applyToolLabels: Bool
+    }
+
+    /// Derive status for a `proc:*` row. Fresh log → running; otherwise idle (preserving
+    /// `priorHasRun` so a finished turn can still show "Done").
+    public static func rowState(isFresh: Bool, priorHasRun: Bool = false) -> RowState {
+        if isFresh {
+            return RowState(status: .running, hasRun: true, applyToolLabels: true)
+        }
+        return RowState(status: .idle, hasRun: priorHasRun, applyToolLabels: false)
+    }
+
     /// Enrich a hit whose agent has a logSource. Returns nil for presence-tier agents or when
-    /// nothing usable is found.
+    /// nothing usable is found. Callers should check `isFresh` before treating this as live work —
+    /// a stale log is leftover from a previous turn/session.
     public static func activity(for source: AgentSource, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Activity? {
         guard let log = AgentRegistry.integration(for: source).logSource else { return nil }
         let dir = home.appendingPathComponent(log.dir)
         guard let newest = newestFile(in: dir, ext: log.ext) else { return nil }
         // ponytail: reads the whole file; session logs are small in practice. Seek-tail if a
         // long-lived log ever makes this hot.
-        guard let text = try? String(contentsOf: newest, encoding: .utf8) else { return nil }
+        guard let text = try? String(contentsOf: newest.url, encoding: .utf8) else { return nil }
         guard let record = lastRecord(text, ext: log.ext) else { return nil }
         let tool = firstString(record, keys: toolKeys)
         let summary = firstString(record, keys: fileKeys)
         guard tool != nil || summary != nil else { return nil }
-        return Activity(tool: tool, summary: summary)
+        return Activity(tool: tool, summary: summary, modifiedAt: newest.modifiedAt)
     }
 
     /// Newest regular file with the given extension under `dir` (searched one level deep too,
     /// since some agents nest per-project subdirs). Returns nil if the dir is absent/empty.
-    static func newestFile(in dir: URL, ext: String) -> URL? {
+    static func newestFile(in dir: URL, ext: String) -> (url: URL, modifiedAt: Date)? {
         let fm = FileManager.default
         guard let en = fm.enumerator(at: dir, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
                                      options: [.skipsHiddenFiles]) else { return nil }
@@ -44,7 +82,7 @@ public enum SessionLogTailer {
             guard vals?.isRegularFile == true, let mod = vals?.contentModificationDate else { continue }
             if best == nil || mod > best!.1 { best = (url, mod) }
         }
-        return best?.0
+        return best.map { (url: $0.0, modifiedAt: $0.1) }
     }
 
     /// The last meaningful JSON object in a log. For jsonl, the last non-empty line; for a json
