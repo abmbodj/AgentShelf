@@ -34,7 +34,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         item.menu = menu
         statusItem = item
         Task { await checkForUpdate() }
-        enableLaunchAtLoginByDefaultOnce()
+        reenableLaunchAtLoginUnlessUserDisabled()
     }
 
     /// The logo, bundled as a template image so AppKit renders it correctly across light/dark
@@ -50,12 +50,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         return NSImage(systemSymbolName: "cpu", accessibilityDescription: "Agent Shelf")
     }
 
-    /// First run only: opt into Launch at Login so most people never have to find the toggle.
-    /// Gated behind a UserDefaults flag so we never override a later, deliberate "off" choice.
-    private func enableLaunchAtLoginByDefaultOnce() {
-        let key = "agentshelf.didSetDefaultLaunchAtLogin"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        UserDefaults.standard.set(true, forKey: key)
+    /// Every launch: re-assert Launch at Login if it's not enabled, since rebuilds can change the
+    /// app's code-signing identity and macOS/BTM silently drops the previous registration. Skipped
+    /// only if the user explicitly turned it off themselves via the menu toggle.
+    private func reenableLaunchAtLoginUnlessUserDisabled() {
+        guard SMAppService.mainApp.status != .enabled else { return }
+        guard !UserDefaults.standard.bool(forKey: Self.userDisabledLaunchAtLoginKey) else { return }
         try? SMAppService.mainApp.register()
     }
 
@@ -247,12 +247,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
     }
 
+    private static let userDisabledLaunchAtLoginKey = "agentshelf.userDisabledLaunchAtLogin"
+
     @objc private func toggleLaunchAtLogin() {
         do {
             if SMAppService.mainApp.status == .enabled {
                 try SMAppService.mainApp.unregister()
+                UserDefaults.standard.set(true, forKey: Self.userDisabledLaunchAtLoginKey)
             } else {
                 try SMAppService.mainApp.register()
+                UserDefaults.standard.set(false, forKey: Self.userDisabledLaunchAtLoginKey)
             }
         } catch {
             let alert = NSAlert()
